@@ -166,7 +166,7 @@ FEATURE_COLUMNS = (
 )
 
 
-def add_features(df: pd.DataFrame, atr_pctl_window: int = 365) -> pd.DataFrame:
+def add_features(df: pd.DataFrame, atr_pctl_window: int = 720) -> pd.DataFrame:
     """Append all indicator columns. Causal, so computing on a full history and slicing at t
     gives the same values as computing on data truncated at t (verified by tests)."""
     out = df.copy()

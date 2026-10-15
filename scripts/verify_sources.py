@@ -9,7 +9,7 @@ import argparse
 import json
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -19,7 +19,7 @@ UA = {"User-Agent": "PerpDesk/0.1 (+verify_sources)"}
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def check(name: str, fn: Any, results: dict[str, Any]) -> Any:
@@ -27,7 +27,7 @@ def check(name: str, fn: Any, results: dict[str, Any]) -> Any:
     try:
         data = fn()
         results[name] = {"ok": True, "ms": round((time.perf_counter() - t0) * 1000), "at": now(), "data": data}
-    except Exception as e:  # noqa: BLE001 - report every failure, never fake a value
+    except Exception as e:
         results[name] = {"ok": False, "ms": round((time.perf_counter() - t0) * 1000), "at": now(), "error": repr(e)}
     return results[name]
 
@@ -61,7 +61,7 @@ def main() -> int:
             d = hl({"type": "candleSnapshot", "req": {"coin": "SOL", "interval": tf, "startTime": 0, "endTime": end}})
             out[tf] = {"count": len(d), "first_t": d[0]["t"] if d else None, "last": d[-1] if d else None,
                        "span_days": round((d[-1]["t"] - d[0]["t"]) / 86_400_000, 1) if d else 0,
-                       "last_open_utc": datetime.fromtimestamp(d[-1]["t"] / 1000, timezone.utc).strftime("%a %Y-%m-%d %H:%M")
+                       "last_open_utc": datetime.fromtimestamp(d[-1]["t"] / 1000, UTC).strftime("%a %Y-%m-%d %H:%M")
                        if d else None}
         return out
 

@@ -1,7 +1,5 @@
 """End-to-end with a fresh SQLite DB and fake upstream APIs: tick, plan logging, scoring, pages, settings."""
 
-import asyncio
-import os
 
 import pytest
 import respx

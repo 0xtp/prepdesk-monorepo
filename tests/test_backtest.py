@@ -1,5 +1,7 @@
 """Backtester: no-lookahead guarantee, simulation and walk-forward plumbing (synthetic data, test-only)."""
 
+import itertools
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -71,7 +73,7 @@ def test_pass1_simulate_walk_forward_end_to_end():
     trades = simulate(run, "composite", 0, pcfg)
     assert trades
     # one position at a time: each trade starts after the previous one ended
-    for a, b in zip(trades, trades[1:], strict=False):
+    for a, b in itertools.pairwise(trades):
         assert b.t_ms >= a.end_ms
     for t in trades:
         if t.filled and t.r is not None:

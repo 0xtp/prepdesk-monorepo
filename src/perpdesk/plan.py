@@ -23,7 +23,14 @@ from perpdesk.analysis.types import TF_MS, Analysis, AssetMeta, Direction, Flag,
 HL_MIN_NOTIONAL_USD = 10.0
 SL_KINDS = {"support", "resistance", "pdl", "pdh", "pwl", "pwh", "eql", "eqh", "val", "vah"}
 ENTRY_KINDS = {"vwap", "ema", "support", "resistance", "fvg", "poc", "val", "vah", "pdl", "pdh"}
-TARGET_KINDS = {"support", "resistance", "pdl", "pdh", "pwl", "pwh", "eql", "eqh", "poc", "vah", "val", "fvg"}
+TARGET_KINDS = {"support", "resistance", "pdl", "pdh", "pwl", "pwh", "eql", "eqh"}
+KEY_LEVELS = {"pdl", "pdh", "pwl", "pwh", "eql", "eqh"}
+
+
+def is_target(lv: Level) -> bool:
+    """Targets respect only significant opposing levels: prior day/week extremes, liquidity pools and
+    support/resistance touched at least twice. Minor levels (VWAP, POC, single touches) are not targets."""
+    return lv.kind in KEY_LEVELS or (lv.kind in TARGET_KINDS and lv.strength >= 2)
 
 
 @dataclass(frozen=True)
@@ -160,11 +167,11 @@ def fmt_px(x: float) -> str:
 
 
 def round_price(px: float, sz_decimals: int, mode: Literal["near", "down", "up"] = "near", spot: bool = False) -> float:
-    """Hyperliquid tick rules: at most 5 significant figures and (6 - szDecimals) decimals for perps
-    (8 - szDecimals for spot). Integer prices are always valid."""
+    """Hyperliquid perp tick rules: at most 5 significant figures and (6 - szDecimals) decimals; integer prices
+    are always valid. Spot / DEX prices (spot=True) are rounded to 5 significant figures only."""
     if px <= 0 or not math.isfinite(px):
         raise ValueError(f"bad price {px}")
-    max_dec = (8 if spot else 6) - sz_decimals
+    max_dec = 30 if spot else 6 - sz_decimals
     d = Decimal(repr(px))
     exp = d.adjusted()  # power of ten of the leading digit
     sig_dec = max(0, 5 - 1 - exp)  # decimals allowed by 5 significant figures
@@ -318,7 +325,7 @@ def _stop(a: Analysis, entry: float, dsign: int, atr: float, cfg: PlanConfig) ->
 def _targets(a: Analysis, entry: float, r: float, dsign: int, rr_target_gross: float, skip_first: bool
              ) -> tuple[float, float]:
     side: Literal["below", "above"] = "above" if dsign > 0 else "below"
-    opp = nearest([lv for lv in a.levels if lv.kind in TARGET_KINDS], entry, side, min_dist=0.25 * r)
+    opp = nearest([lv for lv in a.levels if is_target(lv)], entry, side, min_dist=0.5 * r)
     target = entry + dsign * rr_target_gross * r
     pool = opp[1:] if skip_first else opp
     tp1 = pool[0].price if pool else target

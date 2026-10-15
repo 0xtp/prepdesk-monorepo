@@ -41,7 +41,7 @@ from perpdesk.store import (
 from perpdesk.timeutil import index_ms
 from perpdesk.tracking import service
 
-TF_BARS = {"1w": 260, "1d": 420, "4h": 500, "1h": 700, "30m": 500, "15m": 500, "5m": 500, "1m": 500}
+TF_BARS = {"1w": 260, "1d": 420, "4h": 700, "1h": 1500, "30m": 1000, "15m": 1000, "5m": 500, "1m": 500}
 BTC_TFS = ("1d", "4h", "1h")
 
 
@@ -227,7 +227,7 @@ async def dex_frames(s: Session, a: Asset, tfs: list[str], status: dict[str, dic
         out[tf] = load_candles(s, series, tf, limit=TF_BARS.get(tf, 500))
     if "1w" in tfs and "1d" in out and not out["1d"].empty:
         d = out["1d"]
-        out["1w"] = d.resample("W-MON", label="left", closed="left").agg(
+        out["1w"] = d.resample(pd.Timedelta(days=7), origin="epoch", label="left", closed="left").agg(
             {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna().iloc[:-1]
     return out
 

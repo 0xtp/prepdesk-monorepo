@@ -33,7 +33,7 @@ from perpdesk.plan import Plan, PlanConfig, RiskInputs, build_plan
 from perpdesk.timeutil import index_ms
 from perpdesk.tracking.scorer import PlanSpec, score
 
-LOOKBACK = {"1w": 260, "1d": 420, "4h": 500, "1h": 700, "15m": 500}
+LOOKBACK = {"1w": 260, "1d": 420, "4h": 700, "1h": 1500, "15m": 1000}
 MONTH_MS = 30 * 86_400_000
 
 

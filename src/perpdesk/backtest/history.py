@@ -27,10 +27,9 @@ AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": 
 def resample(df: pd.DataFrame, tf: str) -> pd.DataFrame:
     if df.empty:
         return df
-    if tf == "1w":
-        out = df.resample("W-MON", label="left", closed="left").agg(AGG)
-    else:
-        out = df.resample(pd.Timedelta(milliseconds=TF_MS[tf]), origin="epoch", label="left", closed="left").agg(AGG)
+    # every timeframe (incl. 1w) is epoch-aligned, matching Hyperliquid's own candles (weeks start Thursday 00:00 UTC)
+    span = 7 * 86_400_000 if tf == "1w" else TF_MS[tf]
+    out = df.resample(pd.Timedelta(milliseconds=span), origin="epoch", label="left", closed="left").agg(AGG)
     return out.dropna(subset=["open", "close"])
 
 

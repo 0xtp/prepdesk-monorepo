@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv venv -p 3.12 && uv pip install -e ".[dev]"
-      - run: .venv/bin/ruff check src tests api
+      - run: .venv/bin/ruff check src tests api scripts
       - run: .venv/bin/mypy src
       - name: tests with coverage
         run: |

@@ -60,6 +60,7 @@ ignore = ["RUF001", "RUF002", "RUF003", "B008", "SIM108", "SIM105", "RUF005", "U
 [tool.ruff.lint.per-file-ignores]
 "src/perpdesk/backtest/main.py" = ["E501"]
 "src/perpdesk/db/migrations/*" = ["E501", "W291"]
+"scripts/*" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
