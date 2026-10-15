@@ -7,7 +7,7 @@ import math
 import time
 from collections import defaultdict
 from dataclasses import asdict
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -46,13 +46,17 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
     ecfg: EngineConfig = engine_config(settings)
     fg, cme = load_context_history()
     _log(f"context: fear&greed {'ok' if fg is not None else 'unavailable'}, CME {'ok' if cme is not None else 'unavailable'}")
-    btc_hist = load_history("BTC", start, end, cache_dir)
+    # indicators need ~220 daily bars of warm-up: load it before `start` so the full requested
+    # window is analysed (and enough out-of-sample quarters exist for the stability gate)
+    warm = start - timedelta(days=300)
+    start_ms = int(datetime(start.year, start.month, start.day, tzinfo=UTC).timestamp() * 1000)
+    btc_hist = load_history("BTC", warm, end, cache_dir)
     btc_frames = btc_hist.frames()
     runs: list[CoinRun] = []
     pcfgs: dict[str, PlanConfig] = {}
     for coin in coins:
         cls = (classes or {}).get(coin) or class_for(coin, 20 if coin in ("BTC", "ETH") else 10)
-        hist = btc_hist if coin == "BTC" else load_history(coin, start, end, cache_dir)
+        hist = btc_hist if coin == "BTC" else load_history(coin, warm, end, cache_dir)
         if hist.c1h.empty or hist.c5m.empty:
             _log(f"{coin}: no history available, skipped ({hist.sources})")
             continue
@@ -62,7 +66,7 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
         meta = _meta_for(coin, hist)
         ts = time.monotonic()
         recs = pass1(coin, cls, meta, hist.frames(), None if coin == "BTC" else btc_frames, hist.funding, fg, cme,
-                     ecfg, pcfg, progress=_log)
+                     ecfg, pcfg, start_ms=start_ms, progress=_log)
         if not recs:
             _log(f"{coin}: not enough history after warm-up, skipped")
             continue
@@ -84,7 +88,7 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
     abl: dict[str, list[dict[str, Any]]] = {}
     if do_ablation:
         for run in runs:
-            hist = btc_hist if run.coin == "BTC" else load_history(run.coin, start, end, cache_dir)
+            hist = btc_hist if run.coin == "BTC" else load_history(run.coin, warm, end, cache_dir)
             abl[run.coin] = ablation(run.coin, run.asset_class, _meta_for(run.coin, hist), hist.frames(),
                                      None if run.coin == "BTC" else btc_frames, hist.funding, fg, cme, ecfg,
                                      pcfgs[run.coin], hist.c5m, [g for g, w in ecfg.group_weights.items() if w > 0])
