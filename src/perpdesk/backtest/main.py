@@ -85,6 +85,21 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
     gcfg = GateConfig(settings.gate_min_trades, settings.gate_min_expectancy_r, settings.gate_min_pf,
                       settings.gate_max_dd_r)
     stats_rows = compute_stats(trades, gcfg, wf, settings)
+    _log("OOS results (all coins pooled and per coin):")
+    for r in sorted(stats_rows, key=lambda x: (x["scope_kind"] != "all", x["setup"], x["scope"], x["direction"])):
+        if r["scope_kind"] == "class":
+            continue
+        st = r["stats"]
+        pf = st.get("profit_factor") or 0
+        _log(f"  {r['setup']:15s} {r['scope']:5s} {r['direction']:5s} n={st.get('n', 0):5d} win={st.get('win_rate', 0):4.0%} "
+             f"avgR={st.get('avg_r', 0):+.3f} PF={min(pf, 99):.2f} DD={st.get('max_dd_r', 0):.1f} "
+             f"{'PASS' if r['gate_passed'] else 'fail: ' + (r['gate_reasons'][0] if r['gate_reasons'] else '')}")
+    by_period: dict[str, list[float]] = defaultdict(list)
+    for t in trades:
+        if t.filled and t.r is not None:
+            by_period[t.period].append(float(t.r))
+    for k, v in sorted(by_period.items()):
+        _log(f"  period {k:8s} n={len(v):5d} avgR={float(np.mean(v)):+.3f}")
     abl: dict[str, list[dict[str, Any]]] = {}
     if do_ablation:
         for run in runs:
