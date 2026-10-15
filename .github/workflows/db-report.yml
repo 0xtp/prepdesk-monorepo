@@ -1,0 +1,15 @@
+name: db-report
+# Prints the latest backtest's statistics from the app database (needs DATABASE_URL secret).
+on:
+  workflow_dispatch:
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv -p 3.12 && uv pip install -e .
+      - env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: .venv/bin/python scripts/db_report.py
