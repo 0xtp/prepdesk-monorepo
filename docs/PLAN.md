@@ -1,6 +1,6 @@
 # PerpDesk — Phase 1 Plan
 
-Status: **revised for Vercel deployment after first round of answers (see §11).** Two decisions still pending: backtest history source (Q2) and Vercel plan (Q10).
+Status: **all decisions made (§11); Phase 1 built.** See README.md for setup and usage, docs/PHASE2.md for execution design.
 
 PerpDesk is a self-hosted web app. For each crypto asset it produces a deterministic trade plan for perpetual futures: direction (always LONG or SHORT), grade A/B/C, caution flags, entry, stop, take-profits, size, leverage, liquidation check, and win probability. Every plan is logged and scored against what price did next. Trades are placed by hand on Hyperliquid or in Phantom. Phase 2 (auto-execution) is only designed here (`docs/PHASE2.md`, written later), not built.
 
@@ -270,7 +270,7 @@ Auth is optional: bcrypt hash in env, signed session cookie, login rate limit (5
 ## 11. Decisions (round 1 answers)
 
 1. **Live data access:** proof runs in GitHub Actions (passing, see §0). The deployed app on Vercel calls the APIs directly.
-2. **Backtest history:** **pending.** Recommendation: Binance archive candles (`data.binance.vision`) for history before Hyperliquid's 5,000-bar window, Hyperliquid candles inside it, and Hyperliquid funding throughout. Reasoning is in the hand-off message.
+2. **Backtest history:** Binance archive candles (`data.binance.vision`) for history before Hyperliquid's 5,000-bar window, Hyperliquid candles inside it, Hyperliquid funding throughout (decided).
 3. **Margin mode:** always isolated.
 4. **Risk:** `RISK_PCT_OF_MARGIN=8` default, validated ≤ 10. Optional `ACCOUNT_EQUITY_USD` shows the risk as a % of the whole account, with a warning above 2%.
 5. **Default favourites (groups):** Majors: BTC, ETH · Large: SOL, HYPE, AVAX, LINK, SUI · Mid: UNI, ONDO, ZEC, AERO, ENA · Memes: PENGU, DOGE. All resolve to Hyperliquid perps (checked live). Gate fallback classes use the same groups.
@@ -278,4 +278,6 @@ Auth is optional: bcrypt hash in env, signed session cookie, login rate limit (5
 7. **Context sources:** event calendar on (used as a risk flag). CME gap on, info only, weight ≈ 0. Macro (DXY/S&P 500) **on but weight 0 until backtest ablation shows it helps**. Yahoo is called directly through its chart JSON endpoint, not the heavy `yfinance` package.
 8. **Layout:** a single repo with one Python package, `src/perpdesk` (see §1).
 9. **LLM:** `claude-sonnet-5-5`, plus a usage and balance page.
-10. **Vercel plan / scheduler:** **pending** (see §1). Hobby + GitHub Actions schedule is the free default.
+10. **Scheduler:** needed so plans are logged and scored on a fixed schedule (honest track record, gates, alerts) rather than only when the app is opened. Default: Vercel Hobby + the included GitHub Actions `tick` workflow (free). Vercel cron runs the daily job.
+11. **Database:** the user's Supabase Postgres (transaction pooler, port 6543); Neon also works. SQLite for local/tests.
+12. **Confirmed live:** Hyperliquid weekly candles are epoch-aligned (weeks start Thursday 00:00 UTC); the backtester resamples the same way.
