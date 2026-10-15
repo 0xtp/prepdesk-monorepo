@@ -1,0 +1,17 @@
+name: probe
+# Smoke-test the deployed app (needs the APP_URL secret). Prints status codes and the start of each response.
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          [ -z "$APP_URL" ] && { echo "APP_URL secret not set"; exit 1; }
+          for p in /healthz / /track /backtests /settings /usage /static/app.css "/search?q=SOL"; do
+            code=$(curl -s -o body.txt -w '%{http_code}' --max-time 60 "$APP_URL$p")
+            echo "== $p -> $code"; head -c 300 body.txt | tr '\n' ' '; echo
+          done
