@@ -20,8 +20,9 @@
 {% endif %}
 {%- endmacro %}
 {% macro conf_bar(c) -%}
-<div class="flex items-center gap-2" title="Confidence {{ c }}/100">
+<div class="flex items-center gap-2" title="Confidence {{ c }}/100: how strongly timeframes and factors agree on the direction (60+ = grade B)">
+  <span class="text-[11px] text-zinc-500 w-16 shrink-0">Confidence</span>
   <div class="h-1.5 flex-1 rounded-full bg-zinc-800 overflow-hidden"><div class="h-full rounded-full bg-indigo-400" style="width: {{ c }}%"></div></div>
-  <span class="text-xs tabular-nums text-zinc-400 w-7 text-right">{{ c }}</span>
+  <span class="text-xs tabular-nums text-zinc-400 w-10 text-right">{{ c }}/100</span>
 </div>
 {%- endmacro %}

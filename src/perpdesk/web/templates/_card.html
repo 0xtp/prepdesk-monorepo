@@ -36,7 +36,7 @@
       <div><dt class="text-zinc-500">TP1 / TP2</dt><dd class="text-zinc-200">{{ v.plan.tp1|px }} / {{ v.plan.tp2|px }}</dd></div>
     </dl>
     <div class="flex items-center justify-between text-xs text-zinc-500 tabular-nums">
-      <span>{% if v.plan.win %}Win {{ '~' if v.plan.win.low_sample }}{{ (v.plan.win.p*100)|round|int }}% · BE {{ (v.plan.break_even*100)|round|int }}%{% else %}Win n/a · BE {{ (v.plan.break_even*100)|round|int }}%{% endif %}</span>
+      <span title="Win = chance TP1 is hit before the stop (from backtests). Break-even = win rate this R:R needs to not lose money.">{% if v.plan.win %}Win {{ '~' if v.plan.win.low_sample }}{{ (v.plan.win.p*100)|round|int }}%{% else %}Win: not tested yet{% endif %} · needs {{ (v.plan.break_even*100)|round|int }}% to break even</span>
       {% if v.funding is not none %}<span title="Hourly funding {{ '%.5f'|format(v.funding*100) }}% · {{ '%.1f'|format(v.funding_apr*100) }}% APR">Fund {{ '%.4f'|format(v.funding_8h*100) }}%/8h</span>{% endif %}
     </div>
     {{ spark(v.spark, v.direction == 'LONG') }}
