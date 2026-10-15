@@ -158,6 +158,15 @@ async def add_favorite(key: str = Form(...), group: str = Form(""), s: Session =
                         headers={"HX-Trigger": "favorites-changed"})
 
 
+@router.post("/favorites/seed")
+async def seed_favorites(s: Session = Depends(db)) -> Response:
+    missing = await fav.seed_defaults(s, settings_for(s), _hl(s))
+    s.commit()
+    if missing and any("postponed" in m for m in missing):
+        return HTMLResponse(f'<span class="text-rose-400">{missing[0]}</span>')
+    return Response(status_code=200, headers={"HX-Refresh": "true"})
+
+
 @router.post("/favorites/{asset_id}/delete")
 def remove_favorite(asset_id: int, s: Session = Depends(db)) -> Response:
     fav.remove_favorite(s, asset_id)

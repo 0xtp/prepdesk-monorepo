@@ -50,7 +50,14 @@
     {% endfor %}
     {% endfor %}
   </div>
-  {% if not cards %}<p class="text-zinc-500 text-sm">No favourites yet. They are seeded on the first scheduled run, or add one with the search box.</p>{% endif %}
+  {% if not cards %}
+  <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-sm text-zinc-400 flex flex-col items-start gap-3">
+    <p>No favourites yet. Load the defaults ({% for g, syms in settings.favorite_groups %}{{ syms|join(', ') }}{% if not loop.last %}, {% endif %}{% endfor %}) or add coins with the search box.</p>
+    <div id="seed-out"></div>
+    <button class="rounded-md bg-indigo-500 hover:bg-indigo-400 text-white px-3 py-1.5" hx-post="/favorites/seed" hx-target="#seed-out" hx-indicator="#seed-ind">Load default favourites</button>
+    <span id="seed-ind" class="htmx-indicator text-xs text-zinc-500">loading from Hyperliquid…</span>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 {% block scripts %}
