@@ -1,0 +1,20 @@
+name: live-verify
+# Proves every data source works against the real APIs (no mocks). Runs on demand and on pushes.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**", "main"]
+    paths: ["scripts/verify_sources.py", ".github/workflows/live-verify.yml", "src/**"]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install httpx
+      - run: python scripts/verify_sources.py --json live.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: live-verify, path: live.json }
