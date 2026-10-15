@@ -1,12 +1,33 @@
 # PerpDesk — Phase 1 Plan
 
-Status: **draft, waiting on answers to the open questions (§11)**. No application code has been written yet.
+Status: **revised for Vercel deployment after first round of answers (see §11).** Two decisions still pending: backtest history source (Q2) and Vercel plan (Q10).
 
 PerpDesk is a self-hosted web app. For each crypto asset it produces a deterministic trade plan for perpetual futures: direction (always LONG or SHORT), grade A/B/C, caution flags, entry, stop, take-profits, size, leverage, liquidation check, and win probability. Every plan is logged and scored against what price did next. Trades are placed by hand on Hyperliquid or in Phantom. Phase 2 (auto-execution) is only designed here (`docs/PHASE2.md`, written later), not built.
 
 ---
 
 ## 0. Research notes and verification status
+
+### Live verification, 2026-10-15 19:14 UTC (GitHub Actions run 38792263319, `scripts/verify_sources.py`)
+This sandbox cannot reach the APIs, so the proof run executes in GitHub Actions on every push (`.github/workflows/live-verify.yml`). **All 14 checks passed against the real APIs.**
+
+| coin | mark | funding/h | 8h % | APR % | maxLev | szDecimals | margin table |
+|---|---|---|---|---|---|---|---|
+| BTC | 82,467.0 | 0.0000125 | 0.0100 | 10.95 | 40 | 5 | 56 |
+| ETH | 2,451.3 | 0.0000125 | 0.0100 | 10.95 | 25 | 4 | 55 |
+| SOL | 106.01 | 0.0000125 | 0.0100 | 10.95 | 20 | 2 | 54 |
+| HYPE | 81.896 | 0.0000125 | 0.0100 | 10.95 | 10 | 2 | 52 |
+| PENGU | 0.007615 | −0.0000048 | −0.0038 | −4.21 | 5 | 0 | 5 |
+| AERO | 0.90757 | 0.0000125 | 0.0100 | 10.95 | 3 | 0 | 3 |
+
+Facts now **confirmed live** (they replace the matching [verify-live] notes below):
+- `funding` is the **hourly** rate. 0.0000125/h is the 0.01%/8h baseline.
+- `meta` holds `universe[].marginTableId` and `marginTables` as `[[id, {description, marginTiers:[{lowerBound, maxLeverage}]}]]`. For example, table 52 is "10x below $20M notional, 5x above".
+- Candles: 1m → 5,150 bars (3.6 days); **1h → 5,003 bars (208 days)**; 1d → full history (SOL back to 2020-09).
+- `fundingHistory` returns 500 rows per page from `startTime` onward, so the client pages forward.
+- Every default favourite has a Hyperliquid perp, AERO included (max 3x).
+- CoinGecko (no key), DexScreener, Fear & Greed, Yahoo (BTC=F, DXY, S&P 500) and the ForexFactory feed all respond.
+- **Binance's live API returns 451 from US datacenters** (GitHub and Vercel both run there). **`data.binance.vision`, Binance's public historical archive, returns 200**, so it can serve as a history source.
 
 The build environment's network policy currently **blocks every data host** (`api.hyperliquid.xyz`, `api.dexscreener.com`, `api.coingecko.com`, `api.alternative.me`, Yahoo Finance) and the docs sites themselves (gitbook, docs.dexscreener.com, docs.coingecko.com). The facts below come from the official Hyperliquid Python SDK source (v0.24.0 from PyPI), official doc excerpts quoted in search results, and secondary sources. Items marked **[verify-live]** are checked by `scripts/verify_sources.py` in the first live run, and the code treats them defensively until then.
 
@@ -46,30 +67,58 @@ Constraints that shape the design:
 
 ---
 
-## 1. Architecture
+## 1. Architecture (Vercel)
+
+Deployment target is **Vercel**. That rules out a long-running worker, a local SQLite file (the filesystem is ephemeral), Docker and Caddy (Vercel provides HTTPS). The design becomes:
 
 ```
-          ┌────────────── worker (APScheduler) ───────────────┐
- sources/ │ refresh ctxs (30s) · candles per TF (TTL by TF)    │
- (httpx)  │ analyse favourites (REFRESH_INTERVAL_SEC)          │──► SQLite (WAL) / Postgres
-          │ score open plans (1m) · heartbeat (30s)            │       ▲
-          │ nightly: backup, calibration refit, gate refresh   │       │
-          └────────────────────────────────────────────────────┘       │
- web (FastAPI + Jinja2 + HTMX) ── reads cached analysis; on-demand refresh ┘
- caddy ── HTTPS reverse proxy
+ Vercel project
+ ├── FastAPI app (Python serverless function, Jinja2 + HTMX pages, JSON/HTMX endpoints)
+ ├── /api/cron/* endpoints (secured with CRON_SECRET) ── fired by the scheduler (below)
+ │      tick:   refresh ctxs + incremental candles for favourites, analyse, log plans, score open plans
+ │      daily:  calibration refit, live-gate check, cleanup, Anthropic cost sync
+ └── static: Tailwind CSS (built at deploy), HTMX, Alpine, Lightweight Charts (vendored)
+
+ Neon Postgres (Vercel Marketplace, free tier) ── all state: candles, plans, outcomes, stats, settings, health, LLM usage
+ GitHub Actions ── backtests + walk-forward gates (heavy CPU, minutes long) → writes setup_stats + HTML reports into Postgres
+                ── live-verify workflow (real API proof run on every push)
 ```
 
-- **One analysis engine** (`app/analysis/*`) is a set of pure functions over DataFrames plus a `MarketSnapshot` dataclass. The live worker, the on-demand web refresh, and the backtester all call the same `analyse(snapshot, config) -> Analysis` and `build_plan(analysis, risk_inputs, config) -> Plan`. This is the main protection against differences between live and backtest behaviour.
-- **Source layer:** every source returns `SourceResult[T]` = `{ok, data, error, fetched_at, latency_ms, source}`. Failures never raise into the UI. They become "unavailable (error, timestamp)". A per-source health table feeds the Settings page.
-- **Cache:** candles live in a DB table `candles(coin, tf, ts, o,h,l,c,v)` that only grows (no rewriting of closed bars). Each refresh fetches only new bars. Responses that are not candles go in an in-memory TTL cache, backed by a `kv_cache` table so restarts stay cheap. The worker also **archives** 1m/5m/1h candles for favourites and open plans. This works around the 5,000-candle cap for the scorer and builds up longer history over time.
-- **Web never blocks on slow sources:** a card renders from the latest stored analysis immediately. Refresh uses HTMX swaps with a per-source status line.
-- **Process model:** `web` and `worker` are separate containers that share `/data` (DB, cache, reports, backups). A DB advisory row lock makes sure only one worker runs the schedules.
+- **Scheduler:** Vercel Cron on the **Hobby plan only fires once per day**; Pro fires down to once a minute. To log and score plans you need a tick every 5–15 minutes. Options: (a) Vercel Pro ($20/mo), cron every 5 min; (b) Hobby + GitHub Actions `schedule` (`*/10`, free on public repos; schedules can lag 5–15 min); (c) Hobby + a free external pinger (cron-job.org) hitting `/api/cron/tick` with the secret. The app supports all three: the tick endpoint is idempotent and safe to call at any frequency. See Q10.
+- **Scorer resilience:** the scorer refetches 1m candles from Hyperliquid for each open plan from its creation time, and Hyperliquid keeps ~3.5 days of 1m bars. So ticks can be irregular without losing accuracy, as long as there is at least one tick every ~3 days. Beyond that it falls back to 5m (17 days) and 15m, and records which resolution it used.
+- **Function limits:** Python bundles up to 500 MB (pandas + numpy fit; no scipy or scikit-learn, so isotonic regression and Wilson intervals are hand-written). Each tick processes favourites in batches within the function time limit and resumes where it stopped on the next tick (cursor stored in the DB).
+- **Rate limits:** candles are stored once and fetched incrementally (only new bars), so a tick across ~15 favourites × 5 timeframes costs a few hundred weight against Hyperliquid's 1,200/min. Vercel functions share egress IPs with other tenants, so a 429 backs off and the card shows the last good data with its timestamp.
+- **One engine:** live ticks, on-demand refresh, and the GitHub Actions backtester all import the same `perpdesk.analysis` and `perpdesk.plan` package.
+- **Local dev:** `uvicorn` + SQLite (or a local Postgres via `docker compose -f docker-compose.dev.yml up`). The same code paths are used, and a CLI `perpdesk tick` replaces the cron.
+- **Self-hosting fallback:** a Dockerfile is kept so the app can also run on a VPS, but Vercel is the documented path.
 
-### Directory layout
-As in the brief (`perpdesk/app/...`), plus `app/execution/` (Phase 2 interface and no-op), `scripts/verify_sources.py` (the live proof run), and `app/setups/` (named setup rules). Placement inside this monorepo: see Q8.
+### Repository layout (single repo)
 
-### Tech
-Python 3.12, FastAPI, httpx (async, HTTP/2), pandas, numpy, hand-rolled indicators with reference-value tests (no `pandas-ta`: its maintenance has been unreliable and it breaks on recent numpy/pandas), APScheduler, SQLAlchemy 2 + Alembic, pydantic-settings, Jinja2 + HTMX + Alpine.js, Tailwind standalone CLI (CSS built in the Docker build stage, no Node at runtime), TradingView Lightweight Charts (vendored, pinned), `hypothesis` for property tests, ruff, mypy (strict on `analysis/` and `plan.py`), pytest-cov, GitHub Actions.
+```
+prepdesk-monorepo/
+  src/perpdesk/                 # one installable Python package (the engine + web app)
+    config.py                   # pydantic-settings, validated at import, fails fast
+    db/                         # SQLAlchemy models, session, Alembic migrations
+    sources/                    # hyperliquid, dexscreener, coingecko, feargreed, cme, macro, calendar, coinglass, binance_hist
+    assets/                     # registry (symbol/name/contract resolution), favourites
+    analysis/                   # indicators, structure, derivatives, regime, cme_gap, scoring, setups
+    plan.py                     # entry/SL/TP/size/leverage/liq/costs (pure, mypy strict)
+    tracking/                   # scorer, stats, calibration, gates
+    backtest/                   # runner, walk-forward, reports
+    llm/                        # explain.py (Claude API), usage.py (token + cost ledger)
+    alerts/                     # telegram (webhook mode)
+    execution/                  # Phase 2 interface + NoopExecutor
+    jobs/                       # tick, daily (called by cron endpoints and CLI)
+    web/                        # FastAPI app, routes, templates, static
+    cli.py                      # perpdesk tick | backtest | verify | migrate
+  api/index.py                  # Vercel entrypoint: `from perpdesk.web.main import app`
+  tests/                        # unit, property, no-lookahead, recorded fixtures (only place mocks exist)
+  scripts/verify_sources.py     # live proof run
+  docs/                         # PLAN.md, PHASE2.md
+  .github/workflows/            # ci.yml, live-verify.yml, backtest.yml, tick.yml (if option b)
+  vercel.json, pyproject.toml, .env.example, README.md, Dockerfile, docker-compose.dev.yml
+```
+One package rather than several: the web app, cron jobs and backtester must share the exact same engine code, and a single Python package is the simplest way to guarantee that. Phase 2 execution lives in the same package behind a flag.
 
 ---
 
@@ -87,7 +136,8 @@ Python 3.12, FastAPI, httpx (async, HTTP/2), pandas, numpy, hand-rolled indicato
 | `setup_stats` | backtest OOS stats per setup × scope (asset / class / all) × direction, gate results, quarterly breakdown, and the count of parameter combinations tried |
 | `calibration_models` | fitted isotonic/Platt params per setup scope, with fit date and sample size |
 | `settings_overrides` | runtime-edited weights and risk defaults (with "reset to env") |
-| `source_health`, `worker_heartbeat` | monitoring |
+| `source_health`, `job_heartbeat` | monitoring (last tick, last daily job, last backtest) |
+| `llm_usage` | every Claude call: model, input/output/cache tokens, computed $ cost, plan id |
 
 ---
 
@@ -194,7 +244,7 @@ Spot-only assets (no HL perp): the same analysis on DEX/spot candles. Leverage i
 
 ## 8. UI
 
-The UI is as specified in the brief: Dashboard cards (sorted by grade then confidence, filter by grade, A/B/C counts, auto-refresh toggle), Search/Add (HTMX instant results across HL perps, then HL spot, then CoinGecko, then DexScreener for addresses), Asset detail (Lightweight Charts with TF switcher, EMA overlays, levels, entry/SL/TP lines, CME gap boxes; factor table; plan panel with margin/risk inputs that recompute through HTMX; copy button; optional LLM explanation; per-asset record), Track Record, Backtests, Settings (masked config, runtime overrides, source health, worker heartbeat). Dark-first, Inter, zinc neutrals, one accent (indigo), green/red only for direction and P&L. Mobile-first grid. Permanent footer: "Signals are probabilistic. Not financial advice. Track record below."
+The UI is as specified in the brief: Dashboard cards (sorted by grade then confidence, filter by grade, A/B/C counts, auto-refresh toggle), Search/Add (HTMX instant results across HL perps, then HL spot, then CoinGecko, then DexScreener for addresses), Asset detail (Lightweight Charts with TF switcher, EMA overlays, levels, entry/SL/TP lines, CME gap boxes; factor table; plan panel with margin/risk inputs that recompute through HTMX; copy button; optional LLM explanation; per-asset record), Track Record, Backtests, Settings (masked config, runtime overrides, source health, job heartbeat) and a **Usage** page (Claude API spend and balance, data-source call counts). Dark-first, Inter, zinc neutrals, one accent (indigo), green/red only for direction and P&L. Mobile-first grid. Permanent footer: "Signals are probabilistic. Not financial advice. Track record below."
 
 Auth is optional: bcrypt hash in env, signed session cookie, login rate limit (5/min/IP).
 
@@ -202,7 +252,8 @@ Auth is optional: bcrypt hash in env, signed session cookie, login rate limit (5
 
 ## 9. Optional extras
 - **Telegram** (read-only): alerts on direction flip and upgrade to A; `/check SOL` replies with the current plan; user-ID allowlist.
-- **LLM explanation:** Anthropic Messages API. The model gets only the computed facts as JSON, and the system prompt forbids new numbers. **Numeric guard:** every number in the response must appear in the facts payload, or the explanation is discarded and the deterministic text is used instead. Cached per plan hash. Default `LLM_MODEL=claude-sonnet-5-5` when the key is set.
+- **LLM explanation:** Anthropic Messages API. The model gets only the computed facts as JSON, and the system prompt forbids new numbers. **Numeric guard:** every number in the response must appear in the facts payload, or the explanation is discarded and the deterministic text is used instead. Cached per plan hash. Default `LLM_MODEL=claude-sonnet-5-5` ($2 / $10 per million input/output tokens; roughly $0.005–0.01 per explanation).
+- **Usage and balance page:** every call's `usage` (input, output and cache tokens) is stored in `llm_usage` and priced from a model price table, giving today, month-to-date and all-time spend plus a per-model breakdown. **Anthropic has no API that reports remaining prepaid credit**, so balance = `LLM_CREDIT_USD` (what you loaded, entered in Settings) minus spend tracked since `LLM_CREDIT_SINCE`. Optional `ANTHROPIC_ADMIN_KEY` (an `sk-ant-admin…` key): the daily job pulls `GET /v1/organizations/cost_report`, which shows org-wide actual billed cost next to the app's own figure. Optional `LLM_MONTHLY_BUDGET_USD`: explanations switch off automatically when it is reached.
 
 ---
 
@@ -211,11 +262,20 @@ Auth is optional: bcrypt hash in env, signed session cookie, login rate limit (5
 - Hypothesis properties: SL on the correct side; SL hit before liq; $ risk ≤ configured risk; qty respects `szDecimals`; leverage ≤ caps.
 - Source clients are tested with recorded fixtures (`tests/` only). **No mock data at runtime.**
 - `scripts/verify_sources.py`: a live proof that prints BTC/SOL mark, mid, and funding (hourly, 8h, annualised) from HL, plus each source's status, so they can be compared against the HL UI. It runs at the end of every phase. **It cannot run in this build environment until the hosts in Q1 are allowed.**
-- CI: ruff, mypy, pytest with coverage, Docker build.
-- Deploy: Docker Compose (`web`, `worker`, `caddy`), `/healthz`, nightly SQLite `.backup` with 14-day rotation, log rotation, and a dev compose with hot reload.
+- CI: ruff, mypy, pytest with coverage. `live-verify` runs the real-API proof on every push.
+- Deploy: Vercel (GitHub integration, preview deploy per branch), Neon Postgres (Neon's point-in-time restore replaces nightly backups), `/healthz`, a cron heartbeat shown in the UI, Vercel logs. Local dev uses uvicorn with hot reload.
 
 ---
 
-## 11. Open questions
+## 11. Decisions (round 1 answers)
 
-See the numbered list in the hand-off message. The answers will be recorded here.
+1. **Live data access:** proof runs in GitHub Actions (passing, see §0). The deployed app on Vercel calls the APIs directly.
+2. **Backtest history:** **pending.** Recommendation: Binance archive candles (`data.binance.vision`) for history before Hyperliquid's 5,000-bar window, Hyperliquid candles inside it, and Hyperliquid funding throughout. Reasoning is in the hand-off message.
+3. **Margin mode:** always isolated.
+4. **Risk:** `RISK_PCT_OF_MARGIN=8` default, validated ≤ 10. Optional `ACCOUNT_EQUITY_USD` shows the risk as a % of the whole account, with a warning above 2%.
+5. **Default favourites (groups):** Majors: BTC, ETH · Large: SOL, HYPE, AVAX, LINK, SUI · Mid: UNI, ONDO, ZEC, AERO, ENA · Memes: PENGU, DOGE. All resolve to Hyperliquid perps (checked live). Gate fallback classes use the same groups.
+6. **Conservative scoring:** `MAX_HOLD_HOURS=48`, taker fees on exits, and SL counted first when SL and TP fall in the same candle. Accepted.
+7. **Context sources:** event calendar on (used as a risk flag). CME gap on, info only, weight ≈ 0. Macro (DXY/S&P 500) **on but weight 0 until backtest ablation shows it helps**. Yahoo is called directly through its chart JSON endpoint, not the heavy `yfinance` package.
+8. **Layout:** a single repo with one Python package, `src/perpdesk` (see §1).
+9. **LLM:** `claude-sonnet-5-5`, plus a usage and balance page.
+10. **Vercel plan / scheduler:** **pending** (see §1). Hobby + GitHub Actions schedule is the free default.
