@@ -6,6 +6,6 @@
       "includeFiles": "src/**"
     }
   },
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index?__p=/$1" }],
   "crons": [{ "path": "/api/cron/daily", "schedule": "17 3 * * *" }]
 }
