@@ -11,7 +11,8 @@ jobs:
           APP_URL: ${{ secrets.APP_URL }}
         run: |
           [ -z "$APP_URL" ] && { echo "APP_URL secret not set"; exit 1; }
+          APP_URL="${APP_URL%/}"; echo "APP_URL scheme: ${APP_URL%%://*}"
           for p in /healthz / /track /backtests /settings /usage /static/app.css "/search?q=SOL"; do
-            code=$(curl -s -o body.txt -w '%{http_code}' --max-time 60 "$APP_URL$p")
+            code=$(curl -sL -o body.txt -w '%{http_code} -> %{url_effective}' --max-time 60 "$APP_URL$p")
             echo "== $p -> $code"; head -c 300 body.txt | tr '\n' ' '; echo
           done

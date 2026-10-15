@@ -17,4 +17,5 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then echo "APP_URL / CRON_SECRET secrets not set; skipping"; exit 0; fi
-          curl -fsS --max-time 90 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/tick?budget=45"
+          APP_URL="${APP_URL%/}"
+          curl -fsSL --max-time 90 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/tick?budget=45"
