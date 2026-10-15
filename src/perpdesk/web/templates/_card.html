@@ -1,0 +1,54 @@
+{% from "_macros.html" import dir_badge, grade_chip, move_icon, caution, spark, conf_bar %}
+{% set a = c.asset %}{% set v = c.v %}
+<article id="card-{{ a.id }}" data-id="{{ a.id }}" data-grade="{{ v.grade if v and v.grade else 'Z' }}"
+  class="card group relative rounded-xl border border-zinc-800 bg-zinc-900/60 hover:border-zinc-700 transition p-4 flex flex-col gap-3 h-full">
+  <div class="flex items-start gap-3">
+    <span class="drag-handle cursor-grab text-zinc-600 hover:text-zinc-400 select-none pt-1" title="Drag to reorder">⋮⋮</span>
+    {% if a.icon_url %}<img src="{{ a.icon_url }}" alt="" class="h-8 w-8 rounded-full bg-zinc-800" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'h-8 w-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-semibold',textContent:'{{ a.symbol[:3] }}'}))">
+    {% else %}<span class="h-8 w-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-semibold">{{ a.symbol[:3] }}</span>{% endif %}
+    <a href="/asset/{{ a.id }}" class="min-w-0 flex-1">
+      <div class="flex items-center gap-2">
+        <h3 class="font-semibold text-zinc-100 truncate">{{ a.symbol }}</h3>
+        {% if a.perp_available and a.hl_coin %}<span class="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-zinc-800 text-zinc-300" title="Perp available on Hyperliquid">Perp ✓</span>
+        {% else %}<span class="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-zinc-800 text-amber-300" title="No perp market: spot view only, no leverage">Spot only</span>{% endif %}
+      </div>
+      <div class="text-sm tabular-nums">
+        {% if v and v.price %}<span class="text-zinc-100">{{ v.price|px }}</span>
+        {% if v.change24 is not none %}<span class="ml-1 {{ 'text-emerald-400' if v.change24 >= 0 else 'text-rose-400' }}">{{ v.change24|pct }}</span>{% endif %}
+        {% else %}<span class="text-zinc-500">no data yet</span>{% endif %}
+      </div>
+    </a>
+    <button class="text-zinc-500 hover:text-zinc-200 p-1 rounded" title="Refresh"
+      hx-post="/api/assets/{{ a.id }}/refresh" hx-target="#card-{{ a.id }}" hx-swap="outerHTML" hx-indicator="#spin-{{ a.id }}">
+      <span id="spin-{{ a.id }}" class="htmx-indicator-spin">↻</span></button>
+  </div>
+
+  {% if v and not v.error %}
+  <a href="/asset/{{ a.id }}" class="flex flex-col gap-3">
+    <div class="flex items-center gap-2 flex-wrap">
+      {{ dir_badge(v.direction) }} {{ grade_chip(v.grade) }} {{ move_icon(v.expected_move) }} {{ caution(v.flags) }}
+      <span class="ml-auto text-[11px] font-semibold rounded px-1.5 py-0.5 {{ 'bg-indigo-500/15 text-indigo-300' if v.take else 'bg-zinc-800 text-zinc-500' }}" title="{{ v.take_reason }}">{{ 'TAKE' if v.take else 'SKIP' }}</span>
+    </div>
+    {{ conf_bar(v.confidence) }}
+    <dl class="grid grid-cols-3 gap-2 text-xs tabular-nums">
+      <div><dt class="text-zinc-500">Entry</dt><dd class="text-zinc-200">{% if v.plan.entry_type == 'limit' %}{{ v.plan.zone[0]|px }}–{{ v.plan.zone[1]|px }}{% else %}{{ v.plan.entry|px }}{% endif %}</dd></div>
+      <div><dt class="text-zinc-500">SL</dt><dd class="text-zinc-200">{{ v.plan.sl|px }}</dd></div>
+      <div><dt class="text-zinc-500">TP1 / TP2</dt><dd class="text-zinc-200">{{ v.plan.tp1|px }} / {{ v.plan.tp2|px }}</dd></div>
+    </dl>
+    <div class="flex items-center justify-between text-xs text-zinc-500 tabular-nums">
+      <span>{% if v.plan.win %}Win {{ '~' if v.plan.win.low_sample }}{{ (v.plan.win.p*100)|round|int }}% · BE {{ (v.plan.break_even*100)|round|int }}%{% else %}Win n/a · BE {{ (v.plan.break_even*100)|round|int }}%{% endif %}</span>
+      {% if v.funding is not none %}<span title="Hourly funding {{ '%.5f'|format(v.funding*100) }}% · {{ '%.1f'|format(v.funding_apr*100) }}% APR">Fund {{ '%.4f'|format(v.funding_8h*100) }}%/8h</span>{% endif %}
+    </div>
+    {{ spark(v.spark, v.direction == 'LONG') }}
+    {% if v.warnings %}<p class="text-xs text-rose-400">⚠ {{ v.warnings|join(' · ') }}</p>{% endif %}
+  </a>
+  {% elif v and v.error %}
+  <p class="text-sm text-rose-400 break-words">Unavailable: {{ v.error }}</p>
+  {% else %}
+  <p class="text-sm text-zinc-500">Not analysed yet. Press ↻.</p>
+  {% endif %}
+  <div class="text-[11px] text-zinc-600 flex justify-between">
+    <span>{{ c.group }}</span>
+    <span>updated {{ (v.updated_at if v else none)|ago }}</span>
+  </div>
+</article>

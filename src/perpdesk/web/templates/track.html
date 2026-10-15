@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Track record · {{ app_name() }}{% endblock %}
+{% macro stat_table(rows, label) -%}
+<table class="w-full text-xs tabular-nums">
+  <thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal">{{ label }}</th><th class="font-normal text-right">n</th><th class="font-normal text-right">Win</th><th class="font-normal text-right">Avg R</th><th class="font-normal text-right">PF</th><th class="font-normal text-right">Max DD</th><th class="font-normal text-right">Streak</th></tr></thead>
+  <tbody class="divide-y divide-zinc-800/70">
+  {% for r in rows %}<tr class="{{ 'bg-rose-500/10' if r.warn }}">
+    <td class="py-1.5">{{ r.key }}{% if r.warn %} <span class="text-rose-400" title="Negative expectancy over at least {{ min_sample }} signals">⚠</span>{% endif %}{% if r.low_sample %} <span class="text-zinc-600" title="Below {{ min_sample }} signals">·low n</span>{% endif %}</td>
+    <td class="text-right">{{ r.n }}</td><td class="text-right">{{ (r.win_rate*100)|round|int }}%</td>
+    <td class="text-right {{ 'text-emerald-400' if r.avg_r > 0 else 'text-rose-400' }}">{{ '%+.2f'|format(r.avg_r) }}</td>
+    <td class="text-right">{{ '%.2f'|format(r.profit_factor) if r.profit_factor not in (none,) and r.profit_factor < 1e9 else ('∞' if r.profit_factor else '–') }}</td>
+    <td class="text-right">{{ '%.1f'|format(r.max_dd_r) }}R</td><td class="text-right">{{ r.max_losing_streak }}</td></tr>
+  {% else %}<tr><td colspan="7" class="py-2 text-zinc-500">No scored signals yet.</td></tr>{% endfor %}
+  </tbody></table>
+{%- endmacro %}
+{% block content %}
+{% set o = r.overall %}{% set min_sample = r.min_sample %}
+<div class="flex flex-col gap-5">
+  <div><h1 class="text-xl font-semibold text-zinc-100">Track record</h1>
+    <p class="text-sm text-zinc-500">Every plan the app generates (all grades) is logged and scored automatically against later 1-minute candles. Stops are assumed to hit before targets inside the same candle; exits pay taker fees.</p></div>
+  {% if r.low_sample %}<div class="rounded-lg bg-amber-500/10 ring-1 ring-amber-500/20 text-amber-200 text-sm px-3 py-2">Only {{ o.n }} filled signals so far (need {{ min_sample }} before any conclusion). Treat everything below as anecdotal.</div>{% endif %}
+  {% if r.calibration.drift %}<div class="rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-200 text-sm px-3 py-2">Calibration drift: predicted win rates are off by {{ (r.calibration.error*100)|round|int }}% (limit {{ (r.calibration.limit*100)|round|int }}%). Cards show a warning.</div>{% endif %}
+  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+    {% for label, val, cls in [("Plans logged", r.counts.total, ""), ("Filled & scored", o.n, ""), ("Not triggered", r.counts.not_triggered, ""), ("Win rate", ((o.win_rate*100)|round|int|string) + "%" + (" (" + ((o.wilson_lo*100)|round|int|string) + "–" + ((o.wilson_hi*100)|round|int|string) + "%)" if o.n else ""), ""), ("Expectancy", "%+.2fR"|format(o.avg_r), "text-emerald-400" if o.avg_r > 0 else ("text-rose-400" if o.n else "")), ("Profit factor", ("%.2f"|format(o.profit_factor) if o.profit_factor and o.profit_factor < 1e9 else "–"), "")] %}
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-xs text-zinc-500">{{ label }}</div><div class="text-lg tabular-nums {{ cls }}">{{ val }}</div></div>
+    {% endfor %}
+  </div>
+  <div class="grid gap-5 lg:grid-cols-2">
+    <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <h2 class="text-sm font-semibold text-zinc-200 mb-2">Equity curve, last 30 days (R)</h2>
+      {% if r.curve|length > 1 %}
+      {% set ys = r.curve|map(attribute='r')|list %}{% set lo = [ys|min, 0]|min %}{% set hi = [ys|max, 0]|max %}{% set rng = (hi - lo) if hi > lo else 1 %}
+      <svg viewBox="0 0 300 120" class="w-full h-40" preserveAspectRatio="none" role="img" aria-label="Equity curve">
+        <line x1="0" x2="300" y1="{{ 115 - (0 - lo)/rng*110 }}" y2="{{ 115 - (0 - lo)/rng*110 }}" stroke="#3f3f46" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
+        <polyline fill="none" stroke="#818cf8" stroke-width="2" vector-effect="non-scaling-stroke" points="{% for p in r.curve %}{{ (loop.index0/(r.curve|length-1)*300)|round(1) }},{{ (115 - (p.r - lo)/rng*110)|round(1) }} {% endfor %}"/>
+      </svg>
+      <p class="text-xs text-zinc-500">Cumulative {{ '%+.2f'|format(ys[-1]) }}R over {{ r.curve|length }} trades</p>
+      {% else %}<p class="text-xs text-zinc-500">Not enough closed trades in the last 30 days.</p>{% endif %}
+    </section>
+    <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <h2 class="text-sm font-semibold text-zinc-200 mb-2">Calibration: predicted vs actual win %</h2>
+      {% if r.calibration.buckets %}
+      <svg viewBox="0 0 120 120" class="w-full max-w-xs h-56" role="img" aria-label="Reliability chart">
+        <rect x="10" y="5" width="105" height="105" fill="none" stroke="#3f3f46"/>
+        <line x1="10" y1="110" x2="115" y2="5" stroke="#52525b" stroke-dasharray="3 3"/>
+        {% for b in r.calibration.buckets %}<circle cx="{{ 10 + b.predicted*105 }}" cy="{{ 110 - b.actual*105 }}" r="{{ [2 + b.n**0.5/2, 7]|min }}" fill="#818cf8" fill-opacity="0.8"><title>predicted {{ (b.predicted*100)|round|int }}% · actual {{ (b.actual*100)|round|int }}% · n={{ b.n }}</title></circle>{% endfor %}
+        <text x="62" y="119" fill="#71717a" font-size="6" text-anchor="middle">predicted</text>
+      </svg>
+      <p class="text-xs text-zinc-500">Mean gap {{ (r.calibration.error*100)|round(1) }}% on {{ r.calibration.n }} trades (limit {{ (r.calibration.limit*100)|round|int }}%). Points on the dashed line are perfectly calibrated.</p>
+      {% else %}<p class="text-xs text-zinc-500">No calls with a win probability have closed yet. Win probabilities appear once a backtest has run.</p>{% endif %}
+    </section>
+  </div>
+  <div class="grid gap-5 lg:grid-cols-2">
+    {% for key, label in [("grade","Grade"),("setup","Setup"),("coin","Asset"),("direction","Direction"),("conf","Confidence bucket"),("tf","Timeframe")] %}
+    <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto"><h2 class="text-sm font-semibold text-zinc-200 mb-2">By {{ label|lower }}</h2>{{ stat_table(r.by[key], label) }}</section>
+    {% endfor %}
+  </div>
+  <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
+    <h2 class="text-sm font-semibold text-zinc-200 mb-2">My trades ("I took this")</h2>
+    {% if r.trades_stats %}<p class="text-xs text-zinc-400 mb-2">{{ r.trades_stats.n }} closed · win {{ (r.trades_stats.win_rate*100)|round|int }}% · avg {{ '%+.2f'|format(r.trades_stats.avg_r) }}R</p>{% endif %}
+    <table class="w-full text-xs tabular-nums"><thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal">Opened</th><th class="font-normal">Asset</th><th class="font-normal">Side</th><th class="font-normal text-right">Fill</th><th class="font-normal text-right">Qty</th><th class="font-normal text-right">Exit</th><th class="font-normal text-right">P&L</th><th class="font-normal text-right">R</th><th></th></tr></thead>
+    <tbody class="divide-y divide-zinc-800/70">
+    {% for x in r.trades %}{% set t = x.t %}<tr>
+      <td class="py-1.5">{{ t.opened_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ t.coin }}</td><td class="{{ 'text-emerald-400' if t.direction=='LONG' else 'text-rose-400' }}">{{ t.direction }}</td>
+      <td class="text-right">{{ t.fill_price|px }}</td><td class="text-right">{{ t.qty }}</td>
+      <td class="text-right">{% if t.exit_price %}{{ t.exit_price|px }}{% else %}<form hx-post="/trades/{{ t.id }}/close" class="inline-flex gap-1"><input name="exit_price" type="number" step="any" placeholder="exit" class="w-20 rounded bg-zinc-950 border-zinc-700 text-xs py-0.5"><button class="rounded bg-zinc-700 px-1.5">Close</button></form>{% endif %}</td>
+      <td class="text-right {{ 'text-emerald-400' if x.pnl and x.pnl > 0 else 'text-rose-400' if x.pnl else '' }}">{{ x.pnl|usd if x.pnl is not none else '–' }}</td>
+      <td class="text-right">{{ '%+.2f'|format(x.r) if x.r is not none else '–' }}</td>
+      <td class="text-right"><button class="text-zinc-600 hover:text-rose-400" hx-post="/trades/{{ t.id }}/delete" hx-confirm="Delete this trade record?">✕</button></td></tr>
+    {% else %}<tr><td colspan="9" class="py-2 text-zinc-500">No trades recorded. Use “I took this” on a plan.</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+  <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
+    <h2 class="text-sm font-semibold text-zinc-200 mb-2">Recent plans</h2>
+    <table class="w-full text-xs tabular-nums"><thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal">Created (UTC)</th><th class="font-normal">Asset</th><th class="font-normal">Call</th><th class="font-normal">Setup</th><th class="font-normal text-right">Conf</th><th class="font-normal text-right">Entry</th><th class="font-normal text-right">SL</th><th class="font-normal text-right">TP1</th><th class="font-normal">Status</th><th class="font-normal text-right">R</th></tr></thead>
+    <tbody class="divide-y divide-zinc-800/70">
+    {% for p in r.recent %}<tr>
+      <td class="py-1.5 whitespace-nowrap">{{ p.created_ms|ms_utc }}</td>
+      <td>{{ p.coin }}</td><td><span class="{{ 'text-emerald-400' if p.direction=='LONG' else 'text-rose-400' }}">{{ p.direction }}</span> {{ p.grade }}{% if p.flags %} <span class="text-amber-400">⚠</span>{% endif %}</td>
+      <td>{{ p.setup }}</td><td class="text-right">{{ p.confidence }}</td><td class="text-right">{{ p.entry|px }}</td><td class="text-right">{{ p.sl|px }}</td><td class="text-right">{{ p.tp1|px }}</td>
+      <td>{{ p.outcome.exit_reason if p.outcome else p.status }}</td>
+      <td class="text-right {{ 'text-emerald-400' if p.outcome and p.outcome.r_multiple and p.outcome.r_multiple > 0 else 'text-rose-400' if p.outcome and p.outcome.r_multiple else '' }}">{{ '%+.2f'|format(p.outcome.r_multiple) if p.outcome and p.outcome.r_multiple is not none else '–' }}</td></tr>
+    {% else %}<tr><td colspan="10" class="py-2 text-zinc-500">No plans logged yet. Plans are logged by the scheduled tick and by refreshes.</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+</div>
+{% endblock %}

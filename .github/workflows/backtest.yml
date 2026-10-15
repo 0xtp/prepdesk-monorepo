@@ -1,0 +1,36 @@
+name: backtest
+# Walk-forward backtest on real history (Binance archive + Hyperliquid candles, Hyperliquid funding).
+# Writes the HTML report as an artifact and, if the DATABASE_URL secret is set, into the app's database
+# (Backtests page) so setups that pass every gate can earn grade A.
+on:
+  workflow_dispatch:
+    inputs:
+      coins: { description: "Comma-separated coins", default: "SOL,BTC,ETH,HYPE" }
+      days: { description: "History length in days", default: "730" }
+      ablation: { description: "Run factor-group ablation (slower)", type: boolean, default: true }
+  schedule:
+    - cron: "23 4 * * 0"   # weekly, Sunday 04:23 UTC (scheduled runs only fire on the default branch)
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv -p 3.12 && uv pip install -e .
+      - uses: actions/cache@v4
+        with:
+          path: .cache/binance
+          key: binance-${{ github.run_id }}
+          restore-keys: binance-
+      - name: run backtest
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          ABL=""; if [ "${{ github.event.inputs.ablation || 'true' }}" = "true" ]; then ABL="--ablation"; fi
+          DB=""; if [ -n "$DATABASE_URL" ]; then DB="--db"; fi
+          .venv/bin/perpdesk backtest --coins "${{ github.event.inputs.coins || 'SOL,BTC,ETH,HYPE' }}" \
+            --days "${{ github.event.inputs.days || '730' }}" $ABL $DB --out reports
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: backtest-report, path: reports/ }

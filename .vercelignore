@@ -1,0 +1,7 @@
+.venv
+frontend/node_modules
+tests
+docs
+reports
+.github
+*.db

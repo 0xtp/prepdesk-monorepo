@@ -1,0 +1,20 @@
+name: tick
+# Free scheduler for Vercel Hobby (whose own cron runs at most once a day): calls the app's tick
+# endpoint every 10 minutes. Needs repository secrets APP_URL (e.g. https://perpdesk.vercel.app) and
+# CRON_SECRET (same value as in Vercel). GitHub only runs scheduled workflows on the default branch.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: call tick
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then echo "APP_URL / CRON_SECRET secrets not set; skipping"; exit 0; fi
+          curl -fsS --max-time 90 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/tick?budget=45"

@@ -1,0 +1,25 @@
+{% if error %}<div class="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-sm text-rose-400">{{ error }}</div>
+{% elif results %}
+<ul class="rounded-lg border border-zinc-800 bg-zinc-900 shadow-xl divide-y divide-zinc-800 max-h-96 overflow-auto">
+  {% for r in results %}
+  <li class="flex items-center gap-3 p-3">
+    {% if r.icon %}<img src="{{ r.icon }}" class="h-6 w-6 rounded-full bg-zinc-800" alt="" onerror="this.style.visibility='hidden'">{% else %}<span class="h-6 w-6 rounded-full bg-zinc-800"></span>{% endif %}
+    <div class="min-w-0 flex-1">
+      <div class="text-sm text-zinc-100">{{ r.symbol }} <span class="text-zinc-500">{{ r.name if r.name != r.symbol }}</span>
+        {% if r.perp %}<span class="ml-1 text-[10px] rounded px-1 bg-zinc-800 text-zinc-300">Perp ✓</span>{% else %}<span class="ml-1 text-[10px] rounded px-1 bg-zinc-800 text-amber-300">Spot only</span>{% endif %}</div>
+      <div class="text-xs text-zinc-500 truncate">{{ r.detail }}</div>
+    </div>
+    {% if r.key in favs %}<span class="text-xs text-zinc-500">in favourites</span>
+    {% else %}
+    <form hx-post="/favorites" hx-target="this" hx-swap="outerHTML" class="flex items-center gap-1">
+      <input type="hidden" name="key" value="{{ r.key }}">
+      <select name="group" class="rounded bg-zinc-950 border-zinc-800 text-xs py-1">
+        {% for g in groups %}<option>{{ g.name }}</option>{% endfor %}<option value="">No group</option>
+      </select>
+      <button class="rounded-md bg-indigo-500 hover:bg-indigo-400 text-white text-xs px-2.5 py-1">Add</button>
+    </form>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% elif q|length >= 2 %}<div class="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-500">No matches for “{{ q }}”.</div>{% endif %}

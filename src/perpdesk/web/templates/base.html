@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" class="h-full bg-zinc-950">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ app_name() }}{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/vendor/alpine.min.js" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body class="h-full text-zinc-200 antialiased font-sans">
+<div class="min-h-full flex flex-col">
+  <header class="border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur sticky top-0 z-30" x-data="{open:false}">
+    <div class="mx-auto max-w-7xl px-4 h-14 flex items-center gap-4">
+      <a href="/" class="flex items-center gap-2 font-semibold tracking-tight text-zinc-100">
+        <span class="inline-block h-2.5 w-2.5 rounded-full bg-indigo-400"></span>{{ app_name() }}
+      </a>
+      <nav class="hidden md:flex items-center gap-1 text-sm">
+        {% for href, label, key in [("/", "Dashboard", "dashboard"), ("/track", "Track record", "track"), ("/backtests", "Backtests", "backtests"), ("/usage", "Usage", "usage"), ("/settings", "Settings", "settings")] %}
+        <a href="{{ href }}" class="px-3 py-1.5 rounded-md {{ 'bg-zinc-800 text-zinc-100' if page == key else 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900' }}">{{ label }}</a>
+        {% endfor %}
+      </nav>
+      <div class="ml-auto flex items-center gap-2">
+        {% block header_right %}{% endblock %}
+        <button class="md:hidden p-2 text-zinc-400" @click="open=!open" aria-label="Menu">☰</button>
+      </div>
+    </div>
+    <nav class="md:hidden border-t border-zinc-800 px-4 py-2 grid grid-cols-2 gap-1 text-sm" x-show="open" x-cloak>
+      <a href="/" class="px-3 py-2 rounded-md hover:bg-zinc-900">Dashboard</a>
+      <a href="/track" class="px-3 py-2 rounded-md hover:bg-zinc-900">Track record</a>
+      <a href="/backtests" class="px-3 py-2 rounded-md hover:bg-zinc-900">Backtests</a>
+      <a href="/usage" class="px-3 py-2 rounded-md hover:bg-zinc-900">Usage</a>
+      <a href="/settings" class="px-3 py-2 rounded-md hover:bg-zinc-900">Settings</a>
+    </nav>
+  </header>
+  <main class="flex-1 mx-auto w-full max-w-7xl px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="border-t border-zinc-800/80 text-xs text-zinc-500">
+    <div class="mx-auto max-w-7xl px-4 py-3 flex flex-wrap gap-x-4 gap-y-1 justify-between">
+      <span>Signals are probabilistic. Not financial advice. <a href="/track" class="underline hover:text-zinc-300">Track record below.</a></span>
+      <span>Data: Hyperliquid · DexScreener · CoinGecko · alternative.me · Yahoo · ForexFactory · Charts by <a class="underline" href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a></span>
+    </div>
+  </footer>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

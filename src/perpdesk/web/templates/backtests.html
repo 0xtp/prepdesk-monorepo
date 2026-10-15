@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Backtests · {{ app_name() }}{% endblock %}
+{% block content %}
+<div class="flex flex-col gap-5">
+  <div><h1 class="text-xl font-semibold text-zinc-100">Backtests</h1>
+    <p class="text-sm text-zinc-500">The same engine replayed over history with no lookahead, real fees, conservative slippage and Hyperliquid funding. Runs in GitHub Actions (workflow “backtest”) and writes results here. A setup is grade A only if it passes every gate below.</p></div>
+  {% if not runs %}<div class="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-400">No backtest has run yet. Start it from GitHub → Actions → backtest → Run workflow (it needs the DATABASE_URL secret).</div>{% endif %}
+  {% if runs %}
+  <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
+    <h2 class="text-sm font-semibold text-zinc-200 mb-2">Runs</h2>
+    <table class="w-full text-xs tabular-nums"><thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal">#</th><th class="font-normal">When</th><th class="font-normal">Assets</th><th class="font-normal">Period</th><th class="font-normal text-right">Trades</th><th class="font-normal text-right">Gates passed</th><th></th></tr></thead>
+    <tbody class="divide-y divide-zinc-800/70">{% for r in runs %}<tr>
+      <td class="py-1.5">{{ r.id }}</td><td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ r.coins|join(', ') }}</td>
+      <td>{{ r.summary.get('start','') }} → {{ r.summary.get('end','') }}</td><td class="text-right">{{ r.summary.get('trades', 0) }}</td>
+      <td class="text-right">{{ r.summary.get('gates_passed', 0) }}</td><td class="text-right"><a class="text-indigo-300 hover:underline" href="/backtests/{{ r.id }}/report" target="_blank">Report ↗</a></td></tr>{% endfor %}</tbody></table>
+  </section>
+  <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
+    <h2 class="text-sm font-semibold text-zinc-200 mb-2">Latest run: setup gates (out-of-sample)</h2>
+    <table class="w-full text-xs tabular-nums"><thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal">Setup</th><th class="font-normal">Scope</th><th class="font-normal">Dir</th><th class="font-normal text-right">n</th><th class="font-normal text-right">Win</th><th class="font-normal text-right">Avg R</th><th class="font-normal text-right">PF</th><th class="font-normal text-right">DD</th><th class="font-normal">Gate</th></tr></thead>
+    <tbody class="divide-y divide-zinc-800/70">{% for st in stats %}{% set x = st.stats %}<tr>
+      <td class="py-1.5">{{ st.setup }}</td><td>{{ st.scope }}</td><td>{{ st.direction }}</td><td class="text-right">{{ x.n }}</td>
+      <td class="text-right">{{ ((x.win_rate or 0)*100)|round|int }}%</td><td class="text-right {{ 'text-emerald-400' if (x.avg_r or 0) > 0 else 'text-rose-400' }}">{{ '%+.2f'|format(x.avg_r or 0) }}</td>
+      <td class="text-right">{{ '%.2f'|format(x.profit_factor) if x.profit_factor and x.profit_factor < 1e9 else '–' }}</td><td class="text-right">{{ '%.1f'|format(x.max_dd_r or 0) }}</td>
+      <td>{% if st.gate_passed and not st.live_demoted %}<span class="text-indigo-300">PASS → A</span>{% elif st.live_demoted %}<span class="text-amber-300" title="{{ st.live_reason }}">demoted</span>{% else %}<span class="text-zinc-500" title="{{ st.gate_reasons|join('; ') }}">fail: {{ st.gate_reasons[0] if st.gate_reasons else '' }}</span>{% endif %}</td></tr>{% endfor %}</tbody></table>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

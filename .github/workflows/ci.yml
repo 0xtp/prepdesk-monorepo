@@ -1,0 +1,22 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv -p 3.12 && uv pip install -e ".[dev]"
+      - run: .venv/bin/ruff check src tests api
+      - run: .venv/bin/mypy src
+      - name: tests with coverage
+        run: |
+          .venv/bin/pytest --cov=perpdesk --cov-report=term-missing:skip-covered \
+            --cov-report=xml -q
+      - name: coverage gate on analysis, plan and tracking (>85%)
+        run: |
+          .venv/bin/coverage report --include="src/perpdesk/analysis/*,src/perpdesk/plan.py,src/perpdesk/tracking/*" \
+            --fail-under=85

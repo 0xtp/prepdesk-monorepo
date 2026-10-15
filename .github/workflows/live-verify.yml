@@ -1,20 +1,26 @@
 name: live-verify
-# Proves every data source works against the real APIs (no mocks). Runs on demand and on pushes.
+# Proof run against the real APIs (no mocks): prices/funding side by side, search checks, one full
+# plan per asset including a spot-only token. Runs on demand and on pushes that touch the engine.
 on:
   workflow_dispatch:
   push:
     branches: ["claude/**", "main"]
-    paths: ["scripts/verify_sources.py", ".github/workflows/live-verify.yml", "src/**"]
+    paths: ["src/**", "scripts/verify_sources.py", ".github/workflows/live-verify.yml"]
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: pip install httpx
-      - run: python scripts/verify_sources.py --json live.json
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv -p 3.12 && uv pip install -e .
+      - name: raw source check
+        run: .venv/bin/python scripts/verify_sources.py --json live.json
+      - name: engine proof run (BTC, ETH, SOL, HYPE + a spot-only Base token)
+        run: |
+          .venv/bin/perpdesk verify --coins BTC,ETH,SOL,HYPE \
+            --spot 0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed \
+            --search SOL solana pengu 0x940181a94A35A4569E4529A3CDfB74e38FD98631
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: live-verify, path: live.json }

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block head %}<script src="/static/vendor/Sortable.min.js" defer></script>{% endblock %}
+{% block header_right %}
+{% set hb_tick = hb.get('tick') %}
+<span class="hidden sm:inline text-xs {{ 'text-emerald-400' if hb_tick and hb_tick.ok else 'text-amber-400' }}" title="Last scheduled run: {{ hb_tick.detail if hb_tick else 'never' }}">● tick {{ (hb_tick.last_run.isoformat() if hb_tick else none)|ago }}</span>
+{% endblock %}
+{% block content %}
+<div x-data="dash()" x-init="init()" class="flex flex-col gap-5">
+  <div class="flex flex-col lg:flex-row lg:items-center gap-3">
+    <div class="relative flex-1" x-data="{q:''}">
+      <input type="search" name="q" placeholder="Add asset: symbol, name or contract address…" autocomplete="off"
+        class="w-full rounded-lg bg-zinc-900 border border-zinc-800 focus:border-indigo-500 focus:ring-0 px-4 py-2.5 text-sm placeholder:text-zinc-500"
+        hx-get="/search" hx-trigger="input changed delay:350ms, search" hx-target="#search-results" hx-indicator="#search-ind">
+      <span id="search-ind" class="htmx-indicator absolute right-3 top-2.5 text-xs text-zinc-500">searching…</span>
+      <div id="search-results" class="absolute z-20 mt-1 w-full"></div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2 text-sm">
+      <div class="flex rounded-lg border border-zinc-800 overflow-hidden">
+        <template x-for="g in ['all','A','B','C']">
+          <button class="px-3 py-1.5" :class="gradeFilter===g ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:bg-zinc-900'" @click="gradeFilter=g" x-text="g==='all' ? 'All' : g"></button>
+        </template>
+      </div>
+      <select x-model="sortMode" class="rounded-lg bg-zinc-900 border border-zinc-800 py-1.5 text-sm">
+        <option value="mine">My order</option><option value="grade">Grade, then confidence</option>
+      </select>
+      <button class="rounded-lg border border-zinc-800 px-3 py-1.5 hover:bg-zinc-900" @click="refreshAll()" :disabled="busy">
+        <span x-text="busy ? 'Refreshing ' + done + '/' + total : 'Refresh all'"></span></button>
+      <label class="flex items-center gap-2 text-zinc-400"><input type="checkbox" x-model="auto" class="rounded bg-zinc-900 border-zinc-700 text-indigo-500"> Auto
+        <select x-model.number="every" class="rounded bg-zinc-900 border-zinc-800 py-1 text-xs"><option value="60">1m</option><option value="120">2m</option><option value="300">5m</option><option value="900">15m</option></select>
+      </label>
+    </div>
+  </div>
+
+  <div class="flex flex-wrap gap-3 text-xs text-zinc-400">
+    <span>Current calls:</span>
+    <span><b class="text-indigo-300">{{ grade_counts.A }}</b> A</span>
+    <span><b class="text-zinc-200">{{ grade_counts.B }}</b> B</span>
+    <span><b class="text-zinc-300">{{ grade_counts.C }}</b> C</span>
+    {% if grade_counts.A == 0 %}<span class="text-zinc-500">· No setup has passed every statistical gate yet, so there are no A grades. That is expected until backtests prove a setup.</span>{% endif %}
+  </div>
+
+  {% set ns = namespace(groups=[], rank={}) %}
+  {% for c in cards %}{% if c.group not in ns.groups %}{% set ns.groups = ns.groups + [c.group] %}{% endif %}{% endfor %}
+  {% for c in sorted_cards %}{% set _ = ns.rank.update({c.asset.id: loop.index}) %}{% endfor %}
+  <div id="grid" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    {% for g in ns.groups %}
+    <h2 class="group-hdr col-span-full text-xs uppercase tracking-wider text-zinc-500 mt-2" data-group="{{ g }}" x-show="sortMode==='mine'">{{ g }}</h2>
+    {% for c in cards if c.group == g %}
+    <div class="card-wrap" data-id="{{ c.asset.id }}" x-show="gradeFilter === 'all' || ($el.querySelector('.card') && gradeFilter === $el.querySelector('.card').dataset.grade)" :style="sortMode==='grade' ? 'order: {{ ns.rank[c.asset.id] }}' : ''">{% include "_card.html" %}</div>
+    {% endfor %}
+    {% endfor %}
+  </div>
+  {% if not cards %}<p class="text-zinc-500 text-sm">No favourites yet. They are seeded on the first scheduled run, or add one with the search box.</p>{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function dash(){return{
+  gradeFilter:'all', sortMode: localStorage.getItem('pd-sort')||'mine', auto: localStorage.getItem('pd-auto')==='1',
+  every: parseInt(localStorage.getItem('pd-every')||'120'), busy:false, done:0, total:0, timer:null,
+  init(){
+    this.$watch('sortMode', v=>{try{localStorage.setItem('pd-sort',v)}catch(e){}});
+    this.$watch('auto', v=>{try{localStorage.setItem('pd-auto',v?'1':'0')}catch(e){}; this.schedule()});
+    this.$watch('every', v=>{try{localStorage.setItem('pd-every',String(v))}catch(e){}; this.schedule()});
+    this.schedule();
+    document.body.addEventListener('favorites-changed', ()=>setTimeout(()=>location.reload(), 600));
+    const tryInit=()=>{ if(!window.Sortable){return setTimeout(tryInit,100)}
+      const grid=document.getElementById('grid'); if(grid) new Sortable(grid,{handle:'.drag-handle',draggable:'.card-wrap',animation:150,onEnd:()=>this.saveOrder()});};
+    tryInit();
+  },
+  schedule(){ clearInterval(this.timer); if(this.auto){ this.timer=setInterval(()=>this.refreshAll(), this.every*1000) } },
+  async refreshAll(){
+    if(this.busy) return; const cards=[...document.querySelectorAll('#grid .card')];
+    this.busy=true; this.done=0; this.total=cards.length;
+    for(const c of cards){
+      try{ const r=await fetch('/api/assets/'+c.dataset.id+'/refresh',{method:'POST',headers:{'HX-Request':'true'}});
+        if(r.ok){ const html=await r.text(); const el=document.getElementById('card-'+c.dataset.id); if(el){ el.outerHTML=html; } } }catch(e){}
+      this.done++;
+    }
+    this.busy=false;
+  },
+  saveOrder(){
+    if(this.sortMode!=='mine') return; const groups=[]; let cur=null;
+    for(const el of document.getElementById('grid').children){
+      if(el.classList.contains('group-hdr')){ cur={name:el.dataset.group, ids:[]}; groups.push(cur); }
+      else if(el.classList.contains('card-wrap') && cur){ cur.ids.push(el.dataset.id); } }
+    fetch('/favorites/reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({groups})});
+  }
+}}
+</script>
+{% endblock %}

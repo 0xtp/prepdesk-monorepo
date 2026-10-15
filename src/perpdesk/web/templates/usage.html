@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Usage · {{ app_name() }}{% endblock %}
+{% block content %}
+<div class="flex flex-col gap-5">
+  <h1 class="text-xl font-semibold text-zinc-100">Usage</h1>
+  <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+    <h2 class="text-sm font-semibold text-zinc-200 mb-1">Claude API (plan explanations)</h2>
+    <p class="text-xs text-zinc-500 mb-3">Model {{ u.model }}{% if u.price %} · ${{ u.price[0] }} / ${{ u.price[1] }} per million input / output tokens{% endif %} · {{ 'enabled' if u.enabled else 'off (no ANTHROPIC_API_KEY)' }}. Costs are computed from the token counts Anthropic returns on every call.</p>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm tabular-nums">
+      {% for label, d in [("Today", u.today), ("This month", u.month), ("All time", u.all)] %}
+      <div class="rounded-lg bg-zinc-950 p-3"><div class="text-xs text-zinc-500">{{ label }}</div><div class="text-lg">{{ d.cost|usd(4) }}</div><div class="text-xs text-zinc-500">{{ d.calls }} calls · {{ d.input_tokens }} in / {{ d.output_tokens }} out</div></div>
+      {% endfor %}
+      <div class="rounded-lg bg-zinc-950 p-3"><div class="text-xs text-zinc-500">Balance</div>
+        {% if u.balance %}<div class="text-lg {{ 'text-rose-400' if u.balance.remaining < 1 else '' }}">{{ u.balance.remaining|usd }}</div><div class="text-xs text-zinc-500">{{ u.balance.loaded|usd }} loaded − {{ u.balance.spent|usd(4) }} spent since {{ u.balance.since }}</div>
+        {% else %}<div class="text-xs text-zinc-500 mt-1">Enter the credit you loaded in Settings (LLM_CREDIT_USD) to track the balance. Anthropic has no API that reports remaining credit.</div>{% endif %}</div>
+    </div>
+    {% if u.budget %}<p class="mt-3 text-xs {{ 'text-rose-400' if u.budget.exhausted else 'text-zinc-400' }}">Monthly budget {{ u.budget.used|usd(4) }} of {{ u.budget.limit|usd }}{% if u.budget.exhausted %} — reached; explanations switched to the built-in summary{% endif %}.</p>{% endif %}
+    {% if u.org_cost %}<p class="mt-2 text-xs text-zinc-400">Anthropic billed cost for your whole organisation, {{ u.org_cost.month }}: {{ u.org_cost.month_to_date_usd|usd }} (Admin API, fetched {{ u.org_cost.fetched_at|ago }}).</p>{% endif %}
+    {% if u.recent %}
+    <table class="mt-4 w-full text-xs tabular-nums"><thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal">When</th><th class="font-normal">Model</th><th class="font-normal text-right">In</th><th class="font-normal text-right">Out</th><th class="font-normal text-right">Cost</th><th class="font-normal">Used</th></tr></thead>
+    <tbody class="divide-y divide-zinc-800/70">{% for r in u.recent %}<tr><td class="py-1">{{ r.ts|ago }}</td><td>{{ r.model }}</td><td class="text-right">{{ r.in }}</td><td class="text-right">{{ r.out }}</td><td class="text-right">{{ r.cost|usd(5) }}</td><td>{{ 'yes' if r.ok else 'discarded' }}</td></tr>{% endfor %}</tbody></table>
+    {% endif %}
+  </section>
+  <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
+    <h2 class="text-sm font-semibold text-zinc-200 mb-1">Data source calls</h2>
+    <p class="text-xs text-zinc-500 mb-3">All market data sources are free. Hyperliquid allows 1,200 request-weight per minute per IP; the app uses at most {{ settings.hl_rate_budget_per_min }}. CoinGecko's free tier allows about 30 calls/minute and 10,000/month.</p>
+    <table class="w-full text-xs tabular-nums"><thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal">Source</th><th class="font-normal text-right">Calls</th><th class="font-normal text-right">Errors</th><th class="font-normal">Last success</th></tr></thead>
+    <tbody class="divide-y divide-zinc-800/70">{% for h in health %}<tr><td class="py-1">{{ h.name }}</td><td class="text-right">{{ h.calls }}</td><td class="text-right">{{ h.errors }}</td><td>{{ (h.last_success.isoformat() if h.last_success else none)|ago }}</td></tr>{% else %}<tr><td colspan="4" class="py-2 text-zinc-500">No calls yet.</td></tr>{% endfor %}</tbody></table>
+  </section>
+</div>
+{% endblock %}

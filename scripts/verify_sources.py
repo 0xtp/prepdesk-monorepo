@@ -57,10 +57,12 @@ def main() -> int:
     def hl_candles() -> Any:
         end = int(time.time() * 1000)
         out = {}
-        for tf, ms in (("1m", 60_000), ("1h", 3_600_000), ("1d", 86_400_000)):
+        for tf in ("1m", "1h", "1d", "1w"):
             d = hl({"type": "candleSnapshot", "req": {"coin": "SOL", "interval": tf, "startTime": 0, "endTime": end}})
             out[tf] = {"count": len(d), "first_t": d[0]["t"] if d else None, "last": d[-1] if d else None,
-                       "span_days": round((d[-1]["t"] - d[0]["t"]) / 86_400_000, 1) if d else 0}
+                       "span_days": round((d[-1]["t"] - d[0]["t"]) / 86_400_000, 1) if d else 0,
+                       "last_open_utc": datetime.fromtimestamp(d[-1]["t"] / 1000, timezone.utc).strftime("%a %Y-%m-%d %H:%M")
+                       if d else None}
         return out
 
     def hl_funding() -> Any:

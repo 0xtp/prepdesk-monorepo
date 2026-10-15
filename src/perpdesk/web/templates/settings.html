@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Settings · {{ app_name() }}{% endblock %}
+{% block content %}
+<div class="flex flex-col gap-5">
+  <h1 class="text-xl font-semibold text-zinc-100">Settings</h1>
+  {% if saved %}<div class="rounded-lg bg-emerald-500/10 text-emerald-300 text-sm px-3 py-2">{{ 'Overrides cleared; using environment values.' if saved == 'reset' else 'Saved.' }}</div>{% endif %}
+  {% if error %}<div class="rounded-lg bg-rose-500/10 text-rose-300 text-sm px-3 py-2">Not saved: {{ error }}</div>{% endif %}
+  <div class="grid gap-5 lg:grid-cols-2">
+    <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <h2 class="text-sm font-semibold text-zinc-200 mb-1">Weights and risk defaults</h2>
+      <p class="text-xs text-zinc-500 mb-3">Stored in the database and applied on top of environment values. Leave a field equal to the environment value (or empty) to use the environment.</p>
+      <form method="post" action="/settings" class="grid grid-cols-2 gap-3 text-xs">
+        {% for k in runtime_keys %}
+        <label class="text-zinc-400">{{ k|upper }}
+          <input name="{{ k }}" value="{{ overrides[k] if k in overrides else ('' if env[k] is none else env[k]) }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100 {{ 'ring-1 ring-indigo-500' if k in overrides }}">
+          {% if k in overrides %}<span class="text-indigo-300">override (env: {{ env[k] }})</span>{% endif %}
+        </label>
+        {% endfor %}
+        <div class="col-span-2 flex gap-2"><button class="rounded-md bg-indigo-500 hover:bg-indigo-400 text-white px-3 py-1.5 text-sm">Save</button></div>
+      </form>
+      <form method="post" action="/settings/reset" class="mt-2"><button class="rounded-md border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800">Reset all to env</button></form>
+    </section>
+    <section class="flex flex-col gap-5">
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
+        <h2 class="text-sm font-semibold text-zinc-200 mb-2">Data source health</h2>
+        <table class="w-full text-xs tabular-nums"><thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal">Source</th><th class="font-normal">Last success</th><th class="font-normal text-right">Latency</th><th class="font-normal text-right">Calls / errors</th><th class="font-normal">Last error</th></tr></thead>
+        <tbody class="divide-y divide-zinc-800/70">{% for h in health %}<tr>
+          <td class="py-1.5">{{ h.name }}</td><td>{{ (h.last_success.isoformat() if h.last_success else none)|ago }}</td><td class="text-right">{{ h.latency_ms }} ms</td>
+          <td class="text-right">{{ h.calls }} / {{ h.errors }}</td><td class="text-rose-300/80 max-w-[16rem] truncate" title="{{ h.last_error or '' }}">{% if h.last_error %}{{ (h.last_error_at.isoformat() if h.last_error_at else none)|ago }}: {{ h.last_error }}{% endif %}</td></tr>
+        {% else %}<tr><td colspan="5" class="py-2 text-zinc-500">No calls recorded yet.</td></tr>{% endfor %}</tbody></table>
+      </div>
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-xs">
+        <h2 class="text-sm font-semibold text-zinc-200 mb-2">Scheduled jobs</h2>
+        {% for name in ['tick','daily'] %}{% set h = hb.get(name) %}
+        <p class="{{ 'text-zinc-300' if h and h.ok else 'text-amber-300' }}">{{ name }}: {% if h %}{{ h.last_run.isoformat()|ago }} · {{ h.duration_ms }} ms · {{ h.detail }}{% else %}never run — set up the scheduler (README → Scheduling){% endif %}</p>{% endfor %}
+      </div>
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
+        <h2 class="text-sm font-semibold text-zinc-200 mb-2">Effective configuration</h2>
+        <table class="w-full text-xs"><tbody class="divide-y divide-zinc-800/70">{% for k, val in masked.items() %}<tr><td class="py-1 pr-3 text-zinc-500 whitespace-nowrap">{{ k|upper }}</td><td class="text-zinc-300 break-all">{{ val }}</td></tr>{% endfor %}</tbody></table>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

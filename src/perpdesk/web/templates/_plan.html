@@ -1,0 +1,70 @@
+{% from "_macros.html" import dir_badge, grade_chip %}
+<div id="plan-panel" class="flex flex-col gap-4">
+{% if v and not v.error %}
+{% set p = v.plan %}
+<div class="flex items-center gap-2 flex-wrap">
+  <span class="text-lg font-semibold text-zinc-100">{{ a.symbol }}{{ '' if p.spot_only else '-PERP' }}</span>
+  {{ dir_badge(p.direction) }} {{ grade_chip(p.grade) }}
+  <span class="text-sm text-zinc-400">{{ p.setup_label }}</span>
+  <span class="ml-auto text-xs font-semibold rounded px-2 py-0.5 {{ 'bg-indigo-500/15 text-indigo-300' if v.take else 'bg-zinc-800 text-zinc-400' }}" title="{{ v.take_reason }}">{{ 'TAKE' if v.take else 'SKIP' }}</span>
+</div>
+<p class="text-xs text-zinc-500 -mt-2">{{ v.take_reason }}</p>
+{% if p.spot_only %}<div class="rounded-lg bg-amber-500/10 text-amber-300 text-sm px-3 py-2">Spot view only, no perp market. No leverage suggested.</div>{% endif %}
+{% if v.flags %}
+<ul class="rounded-lg bg-amber-500/10 ring-1 ring-amber-500/20 text-amber-200 text-sm px-3 py-2 space-y-1">
+  {% for f in v.flags %}<li>⚠ {{ f.reason }}</li>{% endfor %}
+</ul>{% endif %}
+
+<div class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm tabular-nums">
+  <div class="col-span-2"><div class="text-zinc-500 text-xs">Entry</div>
+    <div class="text-zinc-100">{% if p.entry_type == 'limit' %}limit {{ p.zone[0]|px }}–{{ p.zone[1]|px }} <span class="text-zinc-500">or market {{ p.entry_market|px }}</span>{% else %}market {{ p.entry_market|px }} <span class="text-zinc-500">or limit {{ p.zone[0]|px }}–{{ p.zone[1]|px }}</span>{% endif %}</div>
+    <div class="text-xs text-zinc-500">{{ p.entry_note }}</div></div>
+  <div><div class="text-zinc-500 text-xs">Stop loss</div><div class="text-rose-300">{{ p.sl|px }}</div></div>
+  <div><div class="text-zinc-500 text-xs">TP1 (50%) / TP2 (50%)</div><div class="text-emerald-300">{{ p.tp1|px }} / {{ p.tp2|px }}</div></div>
+  {% if not p.spot_only %}
+  <div><div class="text-zinc-500 text-xs">Leverage · margin</div><div>{{ p.leverage }}x isolated · {{ p.margin_used|usd }}</div></div>
+  {% endif %}
+  <div><div class="text-zinc-500 text-xs">Notional · quantity</div><div>{{ p.notional|usd }} · {{ p.qty }} {{ a.symbol }}</div></div>
+  <div><div class="text-zinc-500 text-xs">Risk</div><div>{{ p.risk_usd|usd }} <span class="text-zinc-500 text-xs">(target {{ p.risk_target|usd }})</span></div></div>
+  <div><div class="text-zinc-500 text-xs">R:R after costs</div><div>{{ '%.2f'|format(p.rr_tp1) }} to TP1 · {{ '%.2f'|format(p.rr_tp2) }} to TP2</div></div>
+  <div><div class="text-zinc-500 text-xs">$ at TP1 / if TP2</div><div class="text-emerald-300">{{ p.usd_tp1|usd }} / {{ p.usd_tp2|usd }}</div></div>
+  <div><div class="text-zinc-500 text-xs">Fees (est.) · funding</div><div>{{ p.fees|usd }} · {{ p.funding_usd|usd }}</div></div>
+  {% if not p.spot_only %}
+  <div class="col-span-2"><div class="text-zinc-500 text-xs">Est. liquidation</div>
+    <div>{% if p.liq %}{{ p.liq|px }} <span class="text-zinc-500 text-xs">({{ '%.1f'|format(p.liq_buffer_atr) }} ATR beyond the stop)</span>{% else %}none at 1x long{% endif %}</div></div>
+  {% endif %}
+  <div class="col-span-2"><div class="text-zinc-500 text-xs">Win probability (TP1 before SL)</div>
+    <div>{% if p.win %}{{ '~' if p.win.low_sample }}{{ (p.win.p*100)|round|int }}% ({{ (p.win.lo*100)|round|int }}–{{ (p.win.hi*100)|round|int }}%, n={{ p.win.n }}){% if p.win.low_sample %} <span class="text-amber-300 text-xs">low sample</span>{% endif %}
+      <div class="text-xs text-zinc-500">{{ p.win.scope }}</div>
+    {% else %}n/a <span class="text-xs text-zinc-500">— no backtest statistics for this setup yet</span>{% endif %}
+    <div class="text-xs text-zinc-500">Needs {{ (p.break_even*100)|round|int }}% to break even at this R:R</div></div></div>
+  <div class="col-span-2"><div class="text-zinc-500 text-xs">Expected value per trade</div>
+    <div>{% if p.ev_usd is not none %}<span class="{{ 'text-emerald-300' if p.ev_usd >= 0 else 'text-rose-300' }}">{{ p.ev_usd|usd }}</span> vs {{ p.risk_usd|usd }} at risk{% else %}n/a{% endif %} <span class="text-xs text-zinc-500">({{ p.ev_basis }})</span></div></div>
+  <div class="col-span-2"><div class="text-zinc-500 text-xs">Invalidation</div><div class="text-zinc-300">{{ p.invalidation }}</div></div>
+  <div class="col-span-2" x-data="countdown({{ p.expires_ms }})" x-init="start()"><div class="text-zinc-500 text-xs">Plan validity</div><div x-text="label"></div></div>
+</div>
+{% if p.proof %}<p class="text-xs text-zinc-400 border-t border-zinc-800 pt-3">Proof: {{ p.proof }}{% if p.live_proof %}<br>{{ p.live_proof }}{% endif %}</p>
+{% else %}<p class="text-xs text-zinc-500 border-t border-zinc-800 pt-3">Proof: no backtest has been run for this setup yet, so it cannot be grade A.</p>{% endif %}
+{% for n in v.notes %}<p class="text-xs text-zinc-500">· {{ n }}</p>{% endfor %}
+
+<div x-data="{copied:false}" class="flex flex-wrap gap-2">
+  <textarea id="copy-text" class="hidden">{{ p.copy }}</textarea>
+  <button class="rounded-md bg-indigo-500 hover:bg-indigo-400 text-white text-sm px-3 py-1.5"
+    @click="navigator.clipboard.writeText(document.getElementById('copy-text').value); copied=true; setTimeout(()=>copied=false,1500)" x-text="copied ? 'Copied ✓' : 'Copy plan'"></button>
+  <details class="text-sm">
+    <summary class="cursor-pointer rounded-md border border-zinc-700 px-3 py-1.5 hover:bg-zinc-800 list-none">I took this</summary>
+    <form hx-post="/trades" hx-target="this" hx-swap="outerHTML" class="mt-2 grid grid-cols-2 gap-2 text-xs">
+      <input type="hidden" name="asset_id" value="{{ a.id }}"><input type="hidden" name="direction" value="{{ p.direction }}">
+      <label>Fill price<input name="fill_price" type="number" step="any" value="{{ p.entry }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm"></label>
+      <label>Quantity<input name="qty" type="number" step="any" value="{{ p.qty }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm"></label>
+      <label>Leverage<input name="leverage" type="number" value="{{ p.leverage }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm"></label>
+      <label>Stop<input name="sl" type="number" step="any" value="{{ p.sl }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm"></label>
+      <button class="col-span-2 rounded-md bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5">Record my trade</button>
+    </form>
+  </details>
+</div>
+<pre class="text-xs text-zinc-400 bg-zinc-950 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{{ p.copy }}</pre>
+{% elif v %}
+<p class="text-rose-400 text-sm">Unavailable: {{ v.error }}</p>
+{% else %}<p class="text-zinc-500 text-sm">Not analysed yet.</p>{% endif %}
+</div>
