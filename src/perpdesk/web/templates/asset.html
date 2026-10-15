@@ -123,7 +123,9 @@ function chart(id){return{tf:'1h', msg:'', chart:null, series:{}, lines:[],
     this.series.c.setData(d.candles); this.series.e20.setData(d.ema20); this.series.e50.setData(d.ema50); this.series.e200.setData(d.ema200);
     this.lines.forEach(l=>this.series.c.removePriceLine(l)); this.lines=[];
     const add=(price,color,title,style)=>{ if(price==null) return; this.lines.push(this.series.c.createPriceLine({price, color, lineWidth:1, lineStyle:style??0, axisLabelVisible:true, title})) };
-    (d.levels||[]).slice(0,14).forEach(l=>add(l[0],'#52525b',l[2]||l[1],1));
+    const last=d.candles[d.candles.length-1].close;
+    (d.levels||[]).filter(l=>Math.abs(l[0]/last-1)<0.06).sort((a,b)=>Math.abs(a[0]-last)-Math.abs(b[0]-last))
+      .slice(0,8).forEach(l=>add(l[0],'#52525b','',1));
     (d.cme_gaps||[]).filter(g=>!g.filled).forEach(g=>{ add(g.lo,'#fbbf24','CME gap',2); add(g.hi,'#fbbf24','CME gap',2) });
     if(d.range){ add(d.range.high,'#a1a1aa','range high',2); add(d.range.low,'#a1a1aa','range low',2) }
     if(d.plan){ add(d.plan.entry,'#818cf8','entry',0); add(d.plan.sl,'#fb7185','SL',0); add(d.plan.tp1,'#34d399','TP1',0); add(d.plan.tp2,'#34d399','TP2',0); if(d.plan.liq) add(d.plan.liq,'#f97316','liq',2) }
