@@ -21,6 +21,15 @@ def latest_run_id(s: Session) -> int | None:
     return s.execute(select(func.max(BacktestRun.id))).scalar()
 
 
+def latest_score_quantiles(s: Session) -> tuple[float, ...]:
+    run = latest_run_id(s)
+    if run is None:
+        return ()
+    row = s.get(BacktestRun, run)
+    q = (row.summary or {}).get("score_quantiles") if row else None
+    return tuple(float(x) for x in q) if q and len(q) >= 2 else ()
+
+
 def _proof(row: SetupStat) -> str:
     st = row.stats
     pf = st.get("profit_factor")

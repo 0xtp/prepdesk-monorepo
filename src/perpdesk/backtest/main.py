@@ -19,7 +19,7 @@ from perpdesk.analysis.setups import PARAM_GRIDS, SETUP_LABELS
 from perpdesk.analysis.types import AssetMeta
 from perpdesk.assets.registry import class_for
 from perpdesk.backtest.history import History, load_context_history, load_history
-from perpdesk.backtest.runner import CoinRun, Trade, ablation, pass1, walk_forward
+from perpdesk.backtest.runner import CoinRun, Trade, ablation, apply_confidence, pass1, score_quantiles, walk_forward
 from perpdesk.config import Settings
 from perpdesk.plan import PlanConfig
 from perpdesk.tracking.calibration import fit
@@ -72,6 +72,10 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
     if not runs:
         raise RuntimeError("no coin had usable history")
     pcfg_any = next(iter(pcfgs.values()))
+    quants = score_quantiles(runs)
+    apply_confidence(runs, quants, settings.min_confidence)
+    _log(f"confidence: percentile of |score| over {sum(len(r.records) for r in runs)} bars; "
+         f"median |score| {quants[50] if quants else 'n/a'}, 60th pct {quants[60] if quants else 'n/a'}")
     wf, trades = walk_forward(runs, pcfg_any)
     _log(f"walk-forward: {len(wf.windows)} windows, {len(trades)} labelled trades, {wf.combos_tried} combinations tried")
     gcfg = GateConfig(settings.gate_min_trades, settings.gate_min_expectancy_r, settings.gate_min_pf,
@@ -93,6 +97,7 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
         "combos_tried": wf.combos_tried, "seconds": round(time.monotonic() - t0),
         "final_params": {k: PARAM_GRIDS[k][v] for k, v in wf.final_params.items() if k in PARAM_GRIDS},
         "holdout_start": datetime.fromtimestamp(wf.holdout_start / 1000, UTC).strftime("%Y-%m-%d"),
+        "score_quantiles": list(quants),
     }
     html = render_report(runs, trades, stats_rows, wf, summary, abl, settings)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")

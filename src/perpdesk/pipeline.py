@@ -56,8 +56,10 @@ def utcnow() -> datetime:
 # ---------------------------------------------------------------- config adapters
 
 
-def engine_config(settings: Settings, setup_params: dict[str, dict[str, float]] | None = None) -> EngineConfig:
+def engine_config(settings: Settings, setup_params: dict[str, dict[str, float]] | None = None,
+                  score_quantiles: tuple[float, ...] = ()) -> EngineConfig:
     return EngineConfig(
+        score_quantiles=score_quantiles,
         tf_weights=settings.tf_weight_map, group_weights=settings.group_weights, trading_tf=settings.trading_timeframe,
         max_atr_pctl=settings.max_atr_pctl, event_blackout_hours=settings.event_blackout_hours,
         min_liquidity_usd=settings.min_liquidity_usd, setup_params=setup_params or {},
@@ -348,7 +350,8 @@ async def analyse_asset(s: Session, hl: Hyperliquid, a: Asset, ctx: Context, set
             liquidity_usd=liq_usd, fear_greed=ctx.fear_greed, cme_daily=ctx.cme if a.hl_coin in ("BTC", "ETH", "SOL")
             else None, macro=ctx.macro, events=ctx.events, liquidation_levels=liq_levels, stale_sources=stale,
         )
-        an = analyse(snap, engine_config(settings, setup_params_for(s, snap.coin, a.asset_class)))
+        an = analyse(snap, engine_config(settings, setup_params_for(s, snap.coin, a.asset_class),
+                                         service.latest_score_quantiles(s)))
         gate = service.gate_info(s, settings, an.setup.name, snap.coin, a.asset_class, an.direction, an.confidence)
         extra: list[Flag] = []
         cf = service.calibration_flag(s, settings)

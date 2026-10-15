@@ -112,3 +112,15 @@ def test_cme_gap_detection_and_fill():
     filled = find_gaps(cme, hourly.assign(low=95.0), 120.0)
     assert filled[0].filled
     assert fx.cme_gap_factor(gaps) is not None
+
+
+def test_percentile_confidence():
+    from perpdesk.analysis.engine import percentile_confidence
+
+    q = tuple(i / 100 for i in range(101))  # uniform 0..1
+    assert percentile_confidence(0.0, q) == 0
+    assert percentile_confidence(0.6, q) == 60
+    assert percentile_confidence(5.0, q) == 100
+    s = snap()
+    a = analyse(s, EngineConfig(score_quantiles=q))
+    assert a.confidence == round(abs(a.score) * 100) or a.near_zero

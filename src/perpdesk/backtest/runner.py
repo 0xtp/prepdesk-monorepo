@@ -86,6 +86,7 @@ class BarRecord:
     signals: dict[str, list[str | None]]  # setup -> direction per grid param (None = no signal)
     plans: dict[str, Plan]  # "composite" | "limit" | "market"
     funding: float
+    abs_score: float = 0.0
 
 
 @dataclass
@@ -181,7 +182,8 @@ def pass1(coin: str, asset_class: str, meta: AssetMeta, frames: dict[str, pd.Dat
         if "composite" not in plans:
             continue
         g = plans["composite"].grade
-        out.append(BarRecord(t_ms, a.direction, a.confidence, a.near_zero, len(a.flags), g, signals, plans, cur_f or 0.0))
+        out.append(BarRecord(t_ms, a.direction, a.confidence, a.near_zero, len(a.flags), g, signals, plans, cur_f or 0.0,
+                             abs(a.score)))
         if progress and len(out) % 1000 == 0:
             progress(f"{coin}: {len(out)} bars analysed ({time.monotonic() - t_start:.0f}s)")
     return out
@@ -311,3 +313,26 @@ def ablation(coin: str, asset_class: str, meta: AssetMeta, frames: dict[str, pd.
         out.append({"variant": label, "n": len(rs), "avg_r": float(np.mean(rs)) if rs else math.nan,
                     "win": float(np.mean([r > 0 for r in rs])) if rs else math.nan})
     return out
+
+
+def score_quantiles(runs: list[CoinRun]) -> tuple[float, ...]:
+    """|score| at percentiles 0..100 pooled over every analysed bar of every coin."""
+    vals = np.asarray([r.abs_score for run in runs for r in run.records], dtype=float)
+    if vals.size < 100:
+        return ()
+    return tuple(round(float(x), 6) for x in np.percentile(vals, np.arange(101)))
+
+
+def apply_confidence(runs: list[CoinRun], quantiles: tuple[float, ...], min_confidence: int) -> None:
+    """Re-express every record's confidence as a percentile of historical signal strength and
+    re-derive its grade (B >= MIN_CONFIDENCE, else C; low R:R, liquidity or near-zero -> C)."""
+    from perpdesk.analysis.engine import percentile_confidence
+
+    if not quantiles:
+        return
+    for run in runs:
+        for r in run.records:
+            r.confidence = percentile_confidence(r.abs_score, quantiles)
+            comp = r.plans.get("composite")
+            capped = r.near_zero or (comp is not None and any(f.code in ("low_rr", "liquidity") for f in comp.flags))
+            r.grade_ex_gate = "C" if capped or r.confidence < min_confidence else "B"

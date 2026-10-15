@@ -45,6 +45,9 @@ class EngineConfig:
     min_liquidity_usd: float = 2_000_000.0
     setup_params: dict[str, dict[str, float]] = field(default_factory=dict)
     disabled_groups: frozenset[str] = frozenset()  # for factor-ablation backtests
+    # |score| at percentiles 0..100 from the latest backtest. When present, confidence = the percentile
+    # of today's signal strength versus history ("stronger than N% of past signals").
+    score_quantiles: tuple[float, ...] = ()
 
 
 def _tail(df: pd.DataFrame, n: int) -> pd.DataFrame:
@@ -232,6 +235,8 @@ def combine(factors: list[Factor], cfg: EngineConfig) -> tuple[dict[str, float],
 
 
 def confidence_from(score: float, group_scores: dict[str, float], cfg: EngineConfig, direction: Direction) -> int:
+    if len(cfg.score_quantiles) >= 2:
+        return percentile_confidence(abs(score), cfg.score_quantiles)
     dsign = 1 if direction == "LONG" else -1
     active = {g: s for g, s in group_scores.items() if abs(s) > 0.1 and cfg.group_weights.get(g, 0) > 0}
     wtot = sum(cfg.group_weights[g] for g in active)
@@ -251,3 +256,19 @@ def htf_direction(frames: dict[str, pd.DataFrame]) -> Direction:
             if pd.notna(v):
                 return "LONG" if c >= float(v) else "SHORT"
     return "LONG"
+
+
+def percentile_confidence(abs_score: float, quantiles: tuple[float, ...]) -> int:
+    """Percentile (0-100) of a signal strength within a reference distribution of |score|."""
+    q = list(quantiles)
+    n = len(q) - 1
+    if abs_score <= q[0]:
+        return 0
+    if abs_score >= q[-1]:
+        return 100
+    for i in range(n):
+        lo, hi = q[i], q[i + 1]
+        if lo <= abs_score <= hi:
+            frac = 0.0 if hi <= lo else (abs_score - lo) / (hi - lo)
+            return round((i + frac) * 100 / n)
+    return 100
