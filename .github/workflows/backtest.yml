@@ -8,6 +8,8 @@ on:
       coins: { description: "Comma-separated coins", default: "SOL,BTC,ETH,HYPE" }
       days: { description: "History length in days", default: "730" }
       ablation: { description: "Run factor-group ablation (slower)", type: boolean, default: true }
+      timeframe: { description: "Trading timeframe (1h, 4h)", default: "1h" }
+      save: { description: "Save results to the app database (off for experiments)", type: boolean, default: true }
   schedule:
     - cron: "23 4 * * 0"   # weekly, Sunday 04:23 UTC (scheduled runs only fire on the default branch)
 jobs:
@@ -26,9 +28,10 @@ jobs:
       - name: run backtest
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TRADING_TIMEFRAME: ${{ github.event.inputs.timeframe || '1h' }}
         run: |
           ABL=""; if [ "${{ github.event.inputs.ablation || 'true' }}" = "true" ]; then ABL="--ablation"; fi
-          DB=""; if [ -n "$DATABASE_URL" ]; then DB="--db"; fi
+          DB=""; if [ -n "$DATABASE_URL" ] && [ "${{ github.event.inputs.save || 'true' }}" = "true" ]; then DB="--db"; fi
           .venv/bin/perpdesk backtest --coins "${{ github.event.inputs.coins || 'SOL,BTC,ETH,HYPE' }}" \
             --days "${{ github.event.inputs.days || '730' }}" $ABL $DB --out reports
       - uses: actions/upload-artifact@v4
