@@ -1,7 +1,8 @@
 """Scheduled jobs. `tick` runs every few minutes (cron endpoint / GitHub Actions / CLI); `daily` once a day.
 
-tick:  score open plans -> sync the watched wallet (read-only) -> refresh market context -> analyse favourites in
-       batches within a time budget (resuming from a cursor on the next tick) -> log plans -> alerts -> health + heartbeat.
+tick:  score open plans -> sync the watched wallet (read-only) -> refresh market context -> auto-trader (paper)
+       -> analyse favourites in batches within a time budget (resuming from a cursor on the next tick) -> log plans
+       -> alerts -> health + heartbeat.
 daily: refresh perp metadata, live-gate check, prune old data, sync Anthropic org cost (if admin key).
 """
 
@@ -38,6 +39,7 @@ async def tick(s: Session, budget_s: float = 50.0) -> dict[str, Any]:
         out["wallet"] = await _wallet(s, hl, settings)
         ctx = await load_context(s, hl, settings)
         s.commit()
+        out["auto"] = await _auto(s, hl, ctx, settings)
         favs = list_favorites(s)
         hb = s.get(JobHeartbeat, "tick")
         cursor = hb.cursor if hb else 0
@@ -87,6 +89,26 @@ async def _wallet(s: Session, hl: Hyperliquid, settings: Settings) -> dict[str, 
         except Exception:
             pass
     return {"new_fills": res.new_fills, "opened": res.opened, "closed": res.closed, "error": res.error}
+
+
+async def _auto(s: Session, hl: Hyperliquid, ctx: Any, settings: Settings) -> dict[str, Any] | None:
+    if settings.execution_mode == "signals":
+        return None
+    from perpdesk.auto.engine import run
+
+    try:
+        res = await run(s, hl, ctx, settings, now_ms())
+        s.commit()
+    except Exception as e:  # the auto-trader must never break signal generation
+        s.rollback()
+        return {"error": f"{type(e).__name__}: {e}"}
+    if settings.telegram_enabled and settings.telegram_chat_id and (res.opened or res.closed):
+        lines = [f"🤖 PAPER open {x}" for x in res.opened] + [f"🤖 PAPER closed {x}" for x in res.closed]
+        try:
+            await telegram.send(settings, settings.telegram_chat_id, "\n".join(lines))
+        except Exception:
+            pass
+    return res.as_dict()
 
 
 async def daily(s: Session) -> dict[str, Any]:

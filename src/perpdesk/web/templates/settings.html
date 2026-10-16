@@ -12,7 +12,8 @@
       <form method="post" action="/settings" class="grid grid-cols-2 gap-3 text-xs">
         {% for k in runtime_keys %}
         <label class="text-zinc-400">{{ k|upper }}
-          <input name="{{ k }}" value="{{ overrides[k] if k in overrides else ('' if env[k] is none else env[k]) }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100 {{ 'ring-1 ring-indigo-500' if k in overrides }}">
+          {% set cur = overrides[k] if k in overrides else env[k] %}
+          <input name="{{ k }}" value="{{ (cur|join(',')) if cur is iterable and cur is not string else ('' if cur is none else cur) }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100 {{ 'ring-1 ring-indigo-500' if k in overrides }}">
           {% if k in overrides %}<span class="text-indigo-300">override (env: {{ env[k] }})</span>{% endif %}
         </label>
         {% endfor %}

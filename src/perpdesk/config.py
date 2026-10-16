@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from functools import lru_cache
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -41,6 +41,16 @@ RUNTIME_KEYS = (
     "plan_ttl_min",
     "account_equity_usd",
     "watch_wallet",
+    "execution_mode",
+    "auto_coins",
+    "auto_risk_pct",
+    "auto_max_leverage",
+    "auto_max_positions",
+    "auto_daily_loss_pct",
+    "auto_max_drawdown_pct",
+    "auto_paper_equity",
+    "auto_breakout_lookback",
+    "auto_max_entry_delay_min",
     "llm_credit_usd",
     "llm_monthly_budget_usd",
 )
@@ -154,7 +164,20 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
     telegram_webhook_secret: str = ""
 
-    # --- Phase 2 ---
+    # --- Phase 2: auto-trading (paper now; live is not built yet) ---
+    # signals = no auto trades; paper = simulated trades against live prices, no keys, no orders.
+    execution_mode: Literal["signals", "paper"] = "signals"
+    # Coins where the 4h breakout-long setup tested positive out-of-sample (BTC and AVAX were negative).
+    auto_coins: Annotated[list[str], NoDecode] = ["SOL", "HYPE", "ETH", "LINK", "SUI", "UNI", "DOGE", "ENA", "ONDO",
+                                                  "ZEC"]
+    auto_risk_pct: float = Field(0.5, gt=0, le=2)  # % of trading equity lost if a stop is hit
+    auto_max_leverage: int = Field(3, ge=1, le=5)
+    auto_max_positions: int = Field(3, ge=1, le=10)
+    auto_daily_loss_pct: float = Field(3.0, gt=0, le=20)  # halt new entries for the UTC day
+    auto_max_drawdown_pct: float = Field(10.0, gt=0, le=50)  # halt until manually resumed
+    auto_paper_equity: float = Field(500.0, gt=0)
+    auto_breakout_lookback: int = Field(20, ge=5, le=200)
+    auto_max_entry_delay_min: int = Field(30, ge=5, le=240)  # skip a signal noticed later than this after the 4h close
     execution_enabled: bool = False
     hl_account_address: str = ""
     hl_agent_private_key: str = ""
@@ -192,6 +215,11 @@ class Settings(BaseSettings):
         if v and not re.fullmatch(r"0x[0-9a-fA-F]{40}", v):
             raise ValueError("WATCH_WALLET must be a 0x… EVM address (42 characters). Never paste a private key.")
         return v.lower()
+
+    @field_validator("auto_coins", mode="before")
+    @classmethod
+    def _auto_coins(cls, v: Any) -> Any:
+        return [x.upper() for x in _csv(v)] if v not in (None, "") else []
 
     @field_validator("database_url")
     @classmethod

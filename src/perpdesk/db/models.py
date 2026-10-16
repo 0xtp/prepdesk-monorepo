@@ -355,3 +355,48 @@ class WalletTrade(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (Index("ux_wallet_trades_open", "address", "open_tid", unique=True),)
+
+
+class AutoTrade(Base):
+    """Trades taken by the auto-trader (Phase 2). mode=paper rows are simulated against live 1m candles."""
+
+    __tablename__ = "auto_trades"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    mode: Mapped[str] = mapped_column(String(8), index=True)  # paper|live
+    coin: Mapped[str] = mapped_column(String(40), index=True)
+    asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"))
+    setup: Mapped[str] = mapped_column(String(40))
+    direction: Mapped[str] = mapped_column(String(5))
+    status: Mapped[str] = mapped_column(String(10), index=True)  # pending|open|closed|cancelled|error
+    signal_ms: Mapped[int] = mapped_column(BigInteger)  # close time of the 4h bar that triggered it
+    created_ms: Mapped[int] = mapped_column(BigInteger, index=True)
+    entry_type: Mapped[str] = mapped_column(String(6))
+    entry: Mapped[float] = mapped_column(Float)
+    sl: Mapped[float] = mapped_column(Float)
+    tp1: Mapped[float] = mapped_column(Float)
+    tp2: Mapped[float] = mapped_column(Float)
+    runaway: Mapped[float] = mapped_column(Float)
+    expires_ms: Mapped[int] = mapped_column(BigInteger)
+    max_hold_ms: Mapped[int] = mapped_column(BigInteger)
+    qty: Mapped[float] = mapped_column(Float)
+    leverage: Mapped[int] = mapped_column(Integer)
+    notional: Mapped[float] = mapped_column(Float)
+    margin: Mapped[float] = mapped_column(Float)
+    risk_usd: Mapped[float] = mapped_column(Float)
+    liq_price: Mapped[float | None] = mapped_column(Float)
+    entry_fee: Mapped[float] = mapped_column(Float)  # rates
+    exit_fee: Mapped[float] = mapped_column(Float)
+    slippage: Mapped[float] = mapped_column(Float)
+    funding_per_hour: Mapped[float] = mapped_column(Float, default=0.0)
+    confidence: Mapped[int] = mapped_column(Integer, default=0)
+    fill_ms: Mapped[int | None] = mapped_column(BigInteger)
+    fill_px: Mapped[float | None] = mapped_column(Float)
+    tp1_hit: Mapped[bool] = mapped_column(Boolean, default=False)
+    exit_reason: Mapped[str | None] = mapped_column(String(16))
+    exit_ms: Mapped[int | None] = mapped_column(BigInteger)
+    exit_px: Mapped[float | None] = mapped_column(Float)
+    r_multiple: Mapped[float | None] = mapped_column(Float)
+    pnl_usd: Mapped[float | None] = mapped_column(Float)
+    client_id: Mapped[str] = mapped_column(String(40), unique=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

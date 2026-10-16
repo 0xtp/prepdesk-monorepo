@@ -221,3 +221,22 @@ def test_asset_page_leverage_slider(app_env):
     rec = next(r for r in rows if r["recommended"])
     assert rec["mode"] == "plan" and rec["feasible"]
     assert all(r["mode"] != "plan" or r["risk_usd"] <= rec["risk_usd"] * 1.0001 + 0.01 for r in rows if r["feasible"])
+
+
+def test_auto_page_mode_kill_resume(app_env):
+    c = app_env
+    p = c.get("/auto")
+    assert p.status_code == 200 and "SIGNALS" in p.text and "Start paper trading" in p.text
+    assert c.post("/auto/mode", data={"mode": "live"}, follow_redirects=False).headers["location"].startswith("/auto?msg=Only")
+    c.post("/auto/mode", data={"mode": "paper"})
+    p = c.get("/auto")
+    assert "PAPER" in p.text and "Pause (signals only)" in p.text
+    out = c.get("/api/cron/tick?budget=120", headers={"Authorization": "Bearer s3cret"}).json()
+    assert out["auto"]["mode"] == "paper" and not out["auto"]["errors"], out["auto"]
+    k = c.post("/auto/kill", follow_redirects=False)
+    assert k.status_code == 303 and "Kill%20switch" in k.headers["location"]
+    assert "HALTED" in c.get("/auto").text
+    c.post("/auto/resume")
+    assert "HALTED" not in c.get("/auto").text
+    s = c.get("/settings").text
+    assert 'value="SOL,HYPE,ETH,LINK,SUI,UNI,DOGE,ENA,ONDO,ZEC"' in s

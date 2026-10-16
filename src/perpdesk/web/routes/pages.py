@@ -93,6 +93,43 @@ def wallet_address(address: str = Form(""), s: Session = Depends(db)) -> Redirec
     return RedirectResponse("/wallet", status_code=303)
 
 
+@router.get("/auto", response_class=HTMLResponse)
+def auto_page(request: Request, s: Session = Depends(db), msg: str | None = None) -> HTMLResponse:
+    from perpdesk.auto import report as auto_report
+    from perpdesk.pipeline import now_ms
+
+    st = settings_for(s)
+    return templates.TemplateResponse(request, "auto.html", {"r": auto_report.build(s, st, now_ms()), "settings": st,
+                                                             "page": "auto", "msg": msg})
+
+
+@router.post("/auto/mode")
+def auto_mode(mode: str = Form(...), s: Session = Depends(db)) -> RedirectResponse:
+    if mode not in ("signals", "paper"):
+        return RedirectResponse("/auto?msg=Only signals and paper modes exist", status_code=303)
+    set_override(s, "execution_mode", mode)
+    return RedirectResponse(f"/auto?msg=Mode set to {mode}", status_code=303)
+
+
+@router.post("/auto/kill")
+async def auto_kill(s: Session = Depends(db)) -> RedirectResponse:
+    from perpdesk.auto.engine import kill
+    from perpdesk.pipeline import now_ms
+    from perpdesk.sources.hyperliquid import Hyperliquid
+
+    st = settings_for(s)
+    out = await kill(s, Hyperliquid(st.hyperliquid_api_url, st.hl_rate_budget_per_min), now_ms())
+    return RedirectResponse("/auto?msg=Kill switch: halted. " + ("; ".join(out) or "nothing was open"), status_code=303)
+
+
+@router.post("/auto/resume")
+def auto_resume(s: Session = Depends(db)) -> RedirectResponse:
+    from perpdesk.auto import state
+
+    state.resume(s)
+    return RedirectResponse("/auto?msg=Resumed: new entries allowed again", status_code=303)
+
+
 @router.get("/backtests", response_class=HTMLResponse)
 def backtests(request: Request, s: Session = Depends(db)) -> HTMLResponse:
     runs = s.execute(select(BacktestRun.id, BacktestRun.created_at, BacktestRun.coins, BacktestRun.summary)
@@ -136,7 +173,8 @@ async def settings_save(request: Request, s: Session = Depends(db)) -> RedirectR
                 continue
             raw = str(form[k]).strip()
             env_val = getattr(get_settings(), k)
-            if raw == "" or raw == ("" if env_val is None else str(env_val)):
+            env_str = ",".join(map(str, env_val)) if isinstance(env_val, list) else ("" if env_val is None else str(env_val))
+            if raw == "" or raw == env_str:
                 set_override(s, k, None)
                 continue
             set_override(s, k, raw)

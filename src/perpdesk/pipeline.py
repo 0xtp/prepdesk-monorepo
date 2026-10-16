@@ -275,7 +275,8 @@ def setup_params_for(s: Session, coin: str, cls: str) -> dict[str, dict[str, flo
 
 async def analyse_asset(s: Session, hl: Hyperliquid, a: Asset, ctx: Context, settings: Settings,
                         margin: float | None = None, risk_usd: float | None = None, risk_pct: float | None = None,
-                        log: bool = False, save: bool = True) -> AssetResult:
+                        log: bool = False, save: bool = True,
+                        setup_params: dict[str, dict[str, float]] | None = None) -> AssetResult:
     status = dict(ctx.status)
     meta = meta_of(a)
     tfs = list(settings.timeframes)
@@ -350,7 +351,8 @@ async def analyse_asset(s: Session, hl: Hyperliquid, a: Asset, ctx: Context, set
             liquidity_usd=liq_usd, fear_greed=ctx.fear_greed, cme_daily=ctx.cme if a.hl_coin in ("BTC", "ETH", "SOL")
             else None, macro=ctx.macro, events=ctx.events, liquidation_levels=liq_levels, stale_sources=stale,
         )
-        an = analyse(snap, engine_config(settings, setup_params_for(s, snap.coin, a.asset_class),
+        sp = setup_params if setup_params is not None else setup_params_for(s, snap.coin, a.asset_class)
+        an = analyse(snap, engine_config(settings, sp,
                                          service.latest_score_quantiles(s)))
         gate = service.gate_info(s, settings, an.setup.name, snap.coin, a.asset_class, an.direction, an.confidence)
         extra: list[Flag] = []

@@ -183,6 +183,7 @@ src/perpdesk/
   web/               FastAPI app, routes, Jinja templates, static (Tailwind CSS, vendored JS)
   llm/               optional Claude explanation (numeric guard) + usage ledger
   wallet/            watch-only account sync, trade rebuild from fills, position advice
+  auto/              Phase 2 auto-trader (paper): strategy, sizing, safety state, engine, Auto page data
   prices.py          lightweight live prices for the browser poller
   alerts/            optional read-only Telegram
   execution/         Phase 2 interface + NoopExecutor
@@ -193,7 +194,14 @@ The same engine runs live and in the backtest. Indicators are causal, and higher
 
 ## 9. Phase 2 outline
 
-See [`docs/PHASE2.md`](docs/PHASE2.md):
+**Paper auto-trading is live on the Auto page.**
+- **Start it:** press "Start paper trading", or set `EXECUTION_MODE=paper`.
+- **What it does:** after each 4h close it checks `AUTO_COINS` for a LONG breakout. On a signal it opens a simulated trade with `AUTO_PAPER_EQUITY` of fake money, scored against live 1m candles by the backtest's rules.
+- **Safety:** a daily loss pause, a max-drawdown halt, max open positions and a kill switch.
+- **Alerts:** Telegram reports opens and closes.
+- **No keys, no orders.** Live execution is not built yet.
+
+The full design is in [`docs/PHASE2.md`](docs/PHASE2.md):
 
 - Hyperliquid API (agent) wallet that can trade but not withdraw;
 - modes SIGNALS → PAPER → LIVE (typed confirmation);

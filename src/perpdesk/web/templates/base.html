@@ -24,7 +24,7 @@
         <span class="inline-block h-2.5 w-2.5 rounded-full bg-indigo-400"></span>{{ app_name() }}
       </a>
       <nav class="hidden md:flex items-center gap-1 text-sm">
-        {% for href, label, key in [("/", "Dashboard", "dashboard"), ("/wallet", "My trades", "wallet"), ("/track", "Track record", "track"), ("/backtests", "Backtests", "backtests"), ("/usage", "Usage", "usage"), ("/settings", "Settings", "settings")] %}
+        {% for href, label, key in [("/", "Dashboard", "dashboard"), ("/wallet", "My trades", "wallet"), ("/auto", "Auto", "auto"), ("/track", "Track record", "track"), ("/backtests", "Backtests", "backtests"), ("/usage", "Usage", "usage"), ("/settings", "Settings", "settings")] %}
         <a href="{{ href }}" class="px-3 py-1.5 rounded-md {{ 'bg-zinc-800 text-zinc-100' if page == key else 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900' }}">{{ label }}</a>
         {% endfor %}
       </nav>
@@ -36,6 +36,7 @@
     <nav class="md:hidden border-t border-zinc-800 px-4 py-2 grid grid-cols-2 gap-1 text-sm" x-show="open" x-cloak>
       <a href="/" class="px-3 py-2 rounded-md hover:bg-zinc-900">Dashboard</a>
       <a href="/wallet" class="px-3 py-2 rounded-md hover:bg-zinc-900">My trades</a>
+      <a href="/auto" class="px-3 py-2 rounded-md hover:bg-zinc-900">Auto</a>
       <a href="/track" class="px-3 py-2 rounded-md hover:bg-zinc-900">Track record</a>
       <a href="/backtests" class="px-3 py-2 rounded-md hover:bg-zinc-900">Backtests</a>
       <a href="/usage" class="px-3 py-2 rounded-md hover:bg-zinc-900">Usage</a>

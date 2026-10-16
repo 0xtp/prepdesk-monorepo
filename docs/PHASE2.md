@@ -1,7 +1,30 @@
 # PerpDesk Phase 2 — Automated Execution (design only)
 
-Status: **design only. Nothing here is implemented.** Phase 1 ships an `execution/` package with
-an `Executor` protocol and a `NoopExecutor`. The app refuses to start if `EXECUTION_ENABLED=true`.
+Status: **Stage 1 (paper trading) is implemented; live execution is not.** The `auto/` package runs
+the 4h breakout-long strategy in paper mode from the scheduled tick (Auto page, `EXECUTION_MODE=paper`).
+Paper trades use live Hyperliquid 1m candles and the backtest's own scorer: same fills, fees, stop-first
+rule, TP1 half + break-even, 48h time stop. Safety limits are enforced in paper exactly as they would be
+live: daily loss pause, max-drawdown halt, max positions, kill switch. The live executor (agent-wallet
+order signing) is not built yet and needs the owner's explicit go-ahead. The app still refuses to start
+if `EXECUTION_ENABLED=true`.
+
+### Implemented strategy (paper)
+- **Entry:** once per closed 4h bar per coin in `AUTO_COINS`, the normal analysis runs at 4h with breakout
+  lookback `AUTO_BREAKOUT_LOOKBACK`. It trades only when the chosen setup is a LONG breakout (the breakout
+  fires and agrees with the composite direction), which is the backtest's condition. Market entry; skipped if
+  noticed more than `AUTO_MAX_ENTRY_DELAY_MIN` after the close.
+- **Size:** `AUTO_RISK_PCT` of paper equity at the stop (fees included); leverage = what the size needs,
+  capped at `AUTO_MAX_LEVERAGE` isolated; liquidation must sit `MIN_LIQ_BUFFER_ATR` beyond the stop.
+- **Exits:** stop; 50% at TP1 then stop to break-even; rest at TP2; `MAX_HOLD_HOURS` time stop.
+
+### Plan for live (not built)
+- Agent wallet on a funded sub-account. The agent can trade but cannot withdraw; the key lives only in
+  hosting secrets.
+- Entry IOC, then immediately a reduce-only stop (full size) plus TP1/TP2 reduce-only orders. If the
+  protective orders fail, flatten at once and halt.
+- The tick moves the stop to break-even after TP1 and applies the time stop. Stops rest on the exchange, so
+  the 10-minute tick is acceptable at small size.
+- Run on testnet first, then a $200–500 mainnet sub-account at 0.5% risk; paper keeps running alongside.
 
 **Before Phase 2: the assisted phase (implemented).** The My trades page watches the user's address read-only, logs every real trade, and advises on stops, targets and leverage. Automation should start only after the record of real, signal-matched trades meets the entry bar:
 - at least 10–20 closed trades as a first look;
