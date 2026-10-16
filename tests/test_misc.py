@@ -141,3 +141,15 @@ def test_fmt_usd_negative_sign_first():
 
     assert fmt_usd(-14.894) == "-$14.89" and fmt_usd(3.5) == "$3.50" and fmt_usd(-0.001) == "$0.00"
     assert fmt_usd(None) == "–" and fmt_usd(1234.5, 0) == "$1,234"
+
+
+def test_trade_link():
+    from types import SimpleNamespace as NS
+
+    from perpdesk.web.app import trade_link
+
+    assert trade_link(NS(perp_available=True, hl_coin="ZEC")) == ("https://app.hyperliquid.xyz/trade/ZEC", "Hyperliquid")
+    assert trade_link(NS(perp_available=False, hl_coin=None, hl_spot_coin="PURR/USDC"))[0].endswith("/trade/PURR/USDC")
+    assert trade_link(NS(perp_available=False, hl_coin=None, hl_spot_coin="@107", chain="base", pair_address="0xp")) == (
+        "https://dexscreener.com/base/0xp", "DexScreener")
+    assert trade_link(NS(perp_available=False, hl_coin=None, hl_spot_coin=None, chain=None, pair_address=None)) is None

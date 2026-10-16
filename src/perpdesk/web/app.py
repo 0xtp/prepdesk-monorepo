@@ -105,7 +105,19 @@ def ms_utc(ms: Any) -> str:
 
 GRADE_ORDER = {"A": 0, "B": 1, "C": 2}
 templates.env.filters.update(px=fmt_px, usd=fmt_usd, pct=fmt_pct, ago=ago, ms_utc=ms_utc)
-templates.env.globals.update(app_name=lambda: get_settings().app_name)
+def trade_link(a: Any) -> tuple[str, str] | None:
+    """Where to trade/view this asset: Hyperliquid for perps and named spot pairs, DexScreener otherwise."""
+    if getattr(a, "perp_available", False) and getattr(a, "hl_coin", None):
+        return f"https://app.hyperliquid.xyz/trade/{a.hl_coin}", "Hyperliquid"
+    spot = getattr(a, "hl_spot_coin", None)
+    if spot and "/" in spot:
+        return f"https://app.hyperliquid.xyz/trade/{spot}", "Hyperliquid"
+    if getattr(a, "chain", None) and getattr(a, "pair_address", None):
+        return f"https://dexscreener.com/{a.chain}/{a.pair_address}", "DexScreener"
+    return None
+
+
+templates.env.globals.update(app_name=lambda: get_settings().app_name, trade_link=trade_link)
 
 
 # ---------------------------------------------------------------- auth

@@ -151,7 +151,7 @@ Paste your public Hyperliquid address (Phantom: your Ethereum/EVM address) on **
 
 ### Live prices
 
-Dashboard cards, the asset page header and chart, and the My trades mark price update every 60 seconds in the browser without reloading. Polling pauses while the tab is hidden. Only the current price and 24h change move: entry, stop, targets and liquidation stay as computed until the next analysis. The prices come from `/api/prices` (Hyperliquid contexts cached for about 20 s; DEX prices for 60 s).
+Dashboard cards, the asset page header and chart, and the My trades mark price update in the browser about 3 seconds after the page opens and then every 20 seconds, without reloading. Polling pauses while the tab is hidden. Only the current price and 24h change move: entry, stop, targets and liquidation stay as computed until the next analysis. The prices come from `/api/prices` (Hyperliquid contexts cached for about 20 s; DEX prices for 60 s).
 
 ## 7. Local development
 

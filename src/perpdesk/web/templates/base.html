@@ -53,7 +53,7 @@
   </footer>
 </div>
 <script>
-/* Live prices: every 60 s, update elements marked data-live-price / data-live-chg in place (no reload).
+/* Live prices: ~3 s after load, then every 20 s, update elements marked data-live-price / data-live-chg in place (no reload).
    Only the current price and 24h change move; plan levels stay as computed. Paused while the tab is hidden. */
 (function(){
   let busy=false, lastRun=0;
@@ -81,8 +81,9 @@
       document.dispatchEvent(new CustomEvent('live-prices',{detail:d}));
     }catch(e){}finally{busy=false}
   }
-  setInterval(poll,60000);
-  document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&Date.now()-lastRun>60000) poll() });
+  setTimeout(poll,3000); setInterval(poll,20000);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&Date.now()-lastRun>20000) poll() });
+  document.body.addEventListener('htmx:afterSwap',()=>setTimeout(poll,500));
 })();
 </script>
 {% block scripts %}{% endblock %}

@@ -47,8 +47,9 @@
   {% else %}
   <p class="text-sm text-zinc-500">Not analysed yet. Press ↻.</p>
   {% endif %}
-  <div class="text-[11px] text-zinc-600 flex justify-between">
+  <div class="text-[11px] text-zinc-600 flex items-center gap-2">
     <span>{{ c.group }}</span>
-    <span>updated {{ (v.updated_at if v else none)|ago }}</span>
+    {% set tl = trade_link(a) %}{% if tl %}<a href="{{ tl[0] }}" target="_blank" rel="noopener" class="ml-auto rounded px-1.5 py-0.5 text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10" title="Open {{ a.symbol }} on {{ tl[1] }}">{{ 'Trade' if tl[1] == 'Hyperliquid' else 'Chart' }} on {{ tl[1] }} ↗</a>{% endif %}
+    <span class="{{ '' if tl else 'ml-auto' }}">updated {{ (v.updated_at if v else none)|ago }}</span>
   </div>
 </article>
