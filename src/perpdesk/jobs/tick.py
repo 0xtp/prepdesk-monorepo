@@ -1,7 +1,7 @@
 """Scheduled jobs. `tick` runs every few minutes (cron endpoint / GitHub Actions / CLI); `daily` once a day.
 
-tick:  score open plans -> refresh market context -> analyse favourites in batches within a time
-       budget (resuming from a cursor on the next tick) -> log plans -> alerts -> health + heartbeat.
+tick:  score open plans -> sync the watched wallet (read-only) -> refresh market context -> analyse favourites in
+       batches within a time budget (resuming from a cursor on the next tick) -> log plans -> alerts -> health + heartbeat.
 daily: refresh perp metadata, live-gate check, prune old data, sync Anthropic org cost (if admin key).
 """
 
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from perpdesk.alerts import telegram
 from perpdesk.assets.favorites import list_favorites, seed_defaults
 from perpdesk.assets.registry import refresh_perp_meta
+from perpdesk.config import Settings
 from perpdesk.db.models import BacktestTrade, Candle, CtxSnapshot, JobHeartbeat, SetupStat
 from perpdesk.pipeline import analyse_asset, load_context, now_ms
 from perpdesk.sources.hyperliquid import Hyperliquid
@@ -34,6 +35,7 @@ async def tick(s: Session, budget_s: float = 50.0) -> dict[str, Any]:
         out["seed_missing"] = await seed_defaults(s, settings, hl)
         out["scoring"] = await score_open_plans(s, hl, now_ms())
         s.commit()
+        out["wallet"] = await _wallet(s, hl, settings)
         ctx = await load_context(s, hl, settings)
         s.commit()
         favs = list_favorites(s)
@@ -65,6 +67,26 @@ async def tick(s: Session, budget_s: float = 50.0) -> dict[str, Any]:
         raise
     out["ms"] = int((time.monotonic() - t0) * 1000)
     return out
+
+
+async def _wallet(s: Session, hl: Hyperliquid, settings: Settings) -> dict[str, Any] | None:
+    if not settings.watch_wallet:
+        return None
+    from perpdesk.wallet.sync import sync_wallet
+
+    try:
+        res = await sync_wallet(s, hl, settings, force=True)
+        s.commit()
+    except Exception as e:  # wallet tracking must never break signal generation
+        s.rollback()
+        return {"error": f"{type(e).__name__}: {e}"}
+    if settings.telegram_enabled and settings.telegram_chat_id and (res.opened or res.closed):
+        lines = [f"📥 Opened {x}" for x in res.opened] + [f"📤 Closed {x}" for x in res.closed]
+        try:
+            await telegram.send(settings, settings.telegram_chat_id, "\n".join(lines) + "\n\nSee My trades for advice.")
+        except Exception:
+            pass
+    return {"new_fills": res.new_fills, "opened": res.opened, "closed": res.closed, "error": res.error}
 
 
 async def daily(s: Session) -> dict[str, Any]:

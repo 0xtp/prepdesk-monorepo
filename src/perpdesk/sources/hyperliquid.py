@@ -166,6 +166,53 @@ class Hyperliquid:
                        "full_name": base.get("fullName")}
         return out
 
+    # ---- read-only account data (public by address; no keys involved) ----
+
+    async def all_mids(self) -> dict[str, float]:
+        d = await self._post({"type": "allMids"}, weight=2)
+        return {k: float(v) for k, v in d.items()}
+
+    async def clearinghouse_state(self, user: str) -> dict[str, Any]:
+        return dict(await self._post({"type": "clearinghouseState", "user": user}, weight=2))
+
+    async def open_orders(self, user: str) -> list[dict[str, Any]]:
+        """frontendOpenOrders: includes trigger (TP/SL) orders with triggerPx, orderType, reduceOnly."""
+        return list(await self._post({"type": "frontendOpenOrders", "user": user}))
+
+    async def user_fills(self, user: str, start_ms: int, end_ms: int | None = None) -> list[dict[str, Any]]:
+        """Fills since start_ms, oldest first. Pages forward (2000 per response, 10000 most recent available)."""
+        out: list[dict[str, Any]] = []
+        cursor = start_ms
+        for _ in range(10):
+            body: dict[str, Any] = {"type": "userFillsByTime", "user": user, "startTime": cursor, "aggregateByTime": True}
+            if end_ms is not None:
+                body["endTime"] = end_ms
+            data = await self._post(body)
+            if not data:
+                break
+            data = sorted(data, key=lambda f: (int(f["time"]), int(f.get("tid", 0))))
+            out.extend(data)
+            if len(data) < 2000:
+                break
+            cursor = int(data[-1]["time"]) + 1
+        return out
+
+    async def user_funding(self, user: str, start_ms: int, end_ms: int | None = None) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        cursor = start_ms
+        for _ in range(10):
+            body: dict[str, Any] = {"type": "userFunding", "user": user, "startTime": cursor}
+            if end_ms is not None:
+                body["endTime"] = end_ms
+            data = await self._post(body)
+            if not data:
+                break
+            out.extend(data)
+            if len(data) < 500:
+                break
+            cursor = int(data[-1]["time"]) + 1
+        return out
+
 
 def candles_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
     if not rows:

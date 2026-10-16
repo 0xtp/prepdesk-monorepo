@@ -13,8 +13,8 @@
         {% else %}<span class="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-zinc-800 text-amber-300" title="No perp market: spot view only, no leverage">Spot only</span>{% endif %}
       </div>
       <div class="text-sm tabular-nums">
-        {% if v and v.price %}<span class="text-zinc-100">{{ v.price|px }}</span>
-        {% if v.change24 is not none %}<span class="ml-1 {{ 'text-emerald-400' if v.change24 >= 0 else 'text-rose-400' }}">{{ v.change24|pct }}</span>{% endif %}
+        {% if v and v.price %}<span class="text-zinc-100" data-live-price="{{ a.id }}" data-v="{{ v.price }}">{{ v.price|px }}</span>
+        <span class="ml-1 {{ 'text-emerald-400' if (v.change24 or 0) >= 0 else 'text-rose-400' }}" data-live-chg="{{ a.id }}">{{ v.change24|pct if v.change24 is not none else '' }}</span>
         {% else %}<span class="text-zinc-500">no data yet</span>{% endif %}
       </div>
     </a>

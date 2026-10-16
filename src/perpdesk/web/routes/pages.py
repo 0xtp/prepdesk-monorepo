@@ -72,6 +72,23 @@ def track(request: Request, s: Session = Depends(db)) -> HTMLResponse:
                                                               "page": "track"})
 
 
+@router.get("/wallet", response_class=HTMLResponse)
+def wallet_page(request: Request, s: Session = Depends(db), error: str | None = None) -> HTMLResponse:
+    st = settings_for(s)
+    return templates.TemplateResponse(request, "wallet.html", {"settings": st, "page": "wallet", "error": error})
+
+
+@router.post("/wallet/address")
+def wallet_address(address: str = Form(""), s: Session = Depends(db)) -> RedirectResponse:
+    try:
+        set_override(s, "watch_wallet", address.strip() or None)
+    except Exception as e:
+        s.rollback()
+        msg = str(e).split("Value error, ")[-1].split("[")[0].strip()[:200]
+        return RedirectResponse(f"/wallet?error={msg}", status_code=303)
+    return RedirectResponse("/wallet", status_code=303)
+
+
 @router.get("/backtests", response_class=HTMLResponse)
 def backtests(request: Request, s: Session = Depends(db)) -> HTMLResponse:
     runs = s.execute(select(BacktestRun.id, BacktestRun.created_at, BacktestRun.coins, BacktestRun.summary)

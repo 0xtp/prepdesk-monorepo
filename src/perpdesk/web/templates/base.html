@@ -9,6 +9,11 @@
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/vendor/htmx.min.js" defer></script>
   <script src="/static/vendor/alpine.min.js" defer></script>
+  <style>
+    @keyframes pd-up{from{background:rgba(52,211,153,.35)}to{background:transparent}}
+    @keyframes pd-down{from{background:rgba(251,113,133,.35)}to{background:transparent}}
+    .flash-up{animation:pd-up 1.2s ease-out;border-radius:3px}.flash-down{animation:pd-down 1.2s ease-out;border-radius:3px}
+  </style>
   {% block head %}{% endblock %}
 </head>
 <body class="h-full text-zinc-200 antialiased font-sans">
@@ -19,7 +24,7 @@
         <span class="inline-block h-2.5 w-2.5 rounded-full bg-indigo-400"></span>{{ app_name() }}
       </a>
       <nav class="hidden md:flex items-center gap-1 text-sm">
-        {% for href, label, key in [("/", "Dashboard", "dashboard"), ("/track", "Track record", "track"), ("/backtests", "Backtests", "backtests"), ("/usage", "Usage", "usage"), ("/settings", "Settings", "settings")] %}
+        {% for href, label, key in [("/", "Dashboard", "dashboard"), ("/wallet", "My trades", "wallet"), ("/track", "Track record", "track"), ("/backtests", "Backtests", "backtests"), ("/usage", "Usage", "usage"), ("/settings", "Settings", "settings")] %}
         <a href="{{ href }}" class="px-3 py-1.5 rounded-md {{ 'bg-zinc-800 text-zinc-100' if page == key else 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900' }}">{{ label }}</a>
         {% endfor %}
       </nav>
@@ -30,6 +35,7 @@
     </div>
     <nav class="md:hidden border-t border-zinc-800 px-4 py-2 grid grid-cols-2 gap-1 text-sm" x-show="open" x-cloak>
       <a href="/" class="px-3 py-2 rounded-md hover:bg-zinc-900">Dashboard</a>
+      <a href="/wallet" class="px-3 py-2 rounded-md hover:bg-zinc-900">My trades</a>
       <a href="/track" class="px-3 py-2 rounded-md hover:bg-zinc-900">Track record</a>
       <a href="/backtests" class="px-3 py-2 rounded-md hover:bg-zinc-900">Backtests</a>
       <a href="/usage" class="px-3 py-2 rounded-md hover:bg-zinc-900">Usage</a>
@@ -46,6 +52,39 @@
     </div>
   </footer>
 </div>
+<script>
+/* Live prices: every 60 s, update elements marked data-live-price / data-live-chg in place (no reload).
+   Only the current price and 24h change move; plan levels stay as computed. Paused while the tab is hidden. */
+(function(){
+  let busy=false, lastRun=0;
+  async function poll(){
+    if(document.hidden||busy) return;
+    const els=[...document.querySelectorAll('[data-live-price]')]; if(!els.length) return;
+    const ids=[...new Set(els.map(e=>e.dataset.livePrice))].join(',');
+    busy=true; lastRun=Date.now();
+    try{
+      const r=await fetch('/api/prices?ids='+ids,{cache:'no-store'}); if(!r.ok) return;
+      const d=await r.json();
+      for(const el of document.querySelectorAll('[data-live-price]')){
+        const v=d[el.dataset.livePrice]; if(!v||v.price==null) continue;
+        const old=parseFloat(el.dataset.v);
+        if(el.textContent.trim()!==v.text){
+          el.textContent=v.text; el.classList.remove('flash-up','flash-down'); void el.offsetWidth;
+          if(!isNaN(old)&&old!==v.price) el.classList.add(v.price>old?'flash-up':'flash-down');
+        }
+        el.dataset.v=v.price; el.title='live · '+new Date().toLocaleTimeString();
+      }
+      for(const el of document.querySelectorAll('[data-live-chg]')){
+        const v=d[el.dataset.liveChg]; if(!v||!v.change_text) continue;
+        el.textContent=v.change_text; el.classList.toggle('text-emerald-400',v.change24>=0); el.classList.toggle('text-rose-400',v.change24<0);
+      }
+      document.dispatchEvent(new CustomEvent('live-prices',{detail:d}));
+    }catch(e){}finally{busy=false}
+  }
+  setInterval(poll,60000);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&Date.now()-lastRun>60000) poll() });
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

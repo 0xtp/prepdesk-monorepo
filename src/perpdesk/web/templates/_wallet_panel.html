@@ -1,0 +1,107 @@
+{% from "_macros.html" import dir_badge %}
+{% set o = h.overall %}
+<div class="flex flex-col gap-5">
+  <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+    <span class="font-mono">{{ w.address[:6] }}…{{ w.address[-4:] }}</span>
+    <span>synced {{ w.synced_at|ago }}</span>
+    {% if sync.new_fills %}<span class="text-indigo-300">{{ sync.new_fills }} new fills</span>{% endif %}
+    {% if sync.opened %}<span class="text-emerald-300">opened: {{ sync.opened|join(', ') }}</span>{% endif %}
+    {% if sync.closed %}<span class="text-amber-300">closed: {{ sync.closed|join(', ') }}</span>{% endif %}
+    {% if sync.error %}<span class="text-rose-400">sync failed: {{ sync.error }} (showing the last good data)</span>{% endif %}
+    {% if w.account_value is not none %}<span class="ml-auto">Perp account value <b class="text-zinc-200">{{ w.account_value|usd }}</b> · withdrawable {{ w.withdrawable|usd }}</span>{% endif %}
+  </div>
+
+  <section>
+    <h2 class="text-sm font-semibold text-zinc-200 mb-2">Open positions ({{ w.positions|length }})</h2>
+    {% if not w.positions %}<p class="text-sm text-zinc-500">No open perp positions on this address.</p>{% endif %}
+    <div class="grid gap-4 lg:grid-cols-2">
+    {% for x in w.positions %}{% set p = x.p %}{% set v = x.view %}
+      <article class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-col gap-3">
+        <div class="flex items-center gap-2">
+          {% if x.asset %}<a href="/asset/{{ x.asset.id }}" class="font-semibold text-zinc-100 hover:underline">{{ p.coin }}</a>{% else %}<span class="font-semibold text-zinc-100">{{ p.coin }}</span>{% endif %}
+          {{ dir_badge(p.direction) }}
+          <span class="text-xs text-zinc-400">{{ p.leverage }}x {{ p.margin_type }}</span>
+          <span class="ml-auto tabular-nums text-sm {{ 'text-emerald-400' if (p.upnl or 0) >= 0 else 'text-rose-400' }}">{{ p.upnl|usd }}{% if p.roe is not none %} <span class="text-xs">({{ (p.roe*100)|pct(1) }})</span>{% endif %}</span>
+        </div>
+        <dl class="grid grid-cols-3 sm:grid-cols-4 gap-2 text-xs tabular-nums">
+          <div><dt class="text-zinc-500">Size</dt><dd>{{ '%g'|format(p.size) }} · {{ p.notional|usd(0) }}</dd></div>
+          <div><dt class="text-zinc-500">Entry</dt><dd>{{ p.entry|px }}</dd></div>
+          <div><dt class="text-zinc-500">Mark</dt><dd>{% if x.asset %}<span data-live-price="{{ x.asset.id }}">{{ p.mark|px }}</span>{% else %}{{ p.mark|px }}{% endif %}</dd></div>
+          <div><dt class="text-zinc-500">Liq.</dt><dd class="text-orange-300">{{ p.liq|px if p.liq else 'none' }}</dd></div>
+          <div><dt class="text-zinc-500">Your SL</dt><dd class="{{ 'text-rose-300' if p.stop else 'text-rose-400 font-semibold' }}">{{ p.stop|px if p.stop else 'none' }}</dd></div>
+          <div><dt class="text-zinc-500">Your TP</dt><dd class="text-emerald-300">{{ p.target|px if p.target else 'none' }}</dd></div>
+          <div><dt class="text-zinc-500">Margin</dt><dd>{{ p.margin|usd }}</dd></div>
+          <div><dt class="text-zinc-500" title="Funding received (+) or paid (−) since the position opened">Funding</dt><dd>{{ p.funding_since_open|usd if p.funding_since_open is not none else '–' }}</dd></div>
+        </dl>
+        {% if v %}<div class="text-xs text-zinc-400 rounded-lg bg-zinc-950/60 px-3 py-2">
+          App now: <span class="{{ 'text-emerald-400' if v.direction=='LONG' else 'text-rose-400' }}">{{ v.direction }}</span> grade {{ v.grade }} · confidence {{ v.confidence }} ·
+          SL {{ v.plan.sl|px }} · TP1 {{ v.plan.tp1|px }} · TP2 {{ v.plan.tp2|px }} · {{ v.plan.leverage }}x
+        </div>{% else %}<div class="text-xs text-zinc-500">No app analysis for {{ p.coin }}. Add it as a favourite to get plan-based advice.</div>{% endif %}
+        <ul class="flex flex-col gap-1.5 text-xs">
+        {% for a in x.advice %}
+          <li class="rounded px-2 py-1.5 {{ {'danger':'bg-rose-500/15 text-rose-200','warn':'bg-amber-500/10 text-amber-200','info':'bg-zinc-800/70 text-zinc-300','ok':'bg-emerald-500/10 text-emerald-200'}[a.level] }}">{{ {'danger':'⛔','warn':'⚠','info':'ℹ','ok':'✓'}[a.level] }} {{ a.text }}</li>
+        {% endfor %}
+        </ul>
+        {% if x.trade %}<p class="text-[11px] text-zinc-600">Opened {{ x.trade.opened_ms|ms_utc }}{% if x.trade.plan_id %} · matched to plan #{{ x.trade.plan_id }} ({{ x.trade.plan_direction }} {{ x.trade.plan_grade }}, {{ 'followed' if x.trade.followed else 'against it' }}){% endif %}</p>{% endif %}
+      </article>
+    {% endfor %}
+    </div>
+  </section>
+
+  <section class="flex flex-col gap-3">
+    <h2 class="text-sm font-semibold text-zinc-200">History and what it teaches</h2>
+    {% if o.n and o.n < h.min_sample %}<div class="rounded-lg bg-amber-500/10 ring-1 ring-amber-500/20 text-amber-200 text-xs px-3 py-2">{{ o.n }} closed trades so far. Below {{ h.min_sample }} the numbers are anecdotes: one loss can erase several wins. Keep logging.</div>{% endif %}
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      {% for label, val, cls in [
+        ("Closed trades", o.n, ""),
+        ("Win rate", ((o.win_rate*100)|round|int|string) + "%" if o.n else "–", ""),
+        ("Net P&L", o.net|usd, "text-emerald-400" if o.net > 0 else ("text-rose-400" if o.n else "")),
+        ("Avg win / avg loss", (o.avg_win|usd) + " / " + (o.avg_loss|usd) if o.n else "–", ""),
+        ("Fees paid", (o.fees|usd) + (" (front-end " + (o.builder_fees|usd) + ")" if o.builder_fees else ""), ""),
+        ("Avg R", ("%+.2f"|format(o.avg_r)) + "R" if o.avg_r is not none else "–", "")] %}
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-xs text-zinc-500">{{ label }}</div><div class="text-base tabular-nums {{ cls }}">{{ val }}</div></div>
+      {% endfor %}
+    </div>
+    {% macro agg_row(label, a) -%}
+      <tr><td class="py-1.5">{{ label }}</td><td class="text-right">{{ a.n }}</td><td class="text-right">{{ ((a.win_rate*100)|round|int|string + '%') if a.n else '–' }}</td>
+      <td class="text-right {{ 'text-emerald-400' if a.net > 0 else 'text-rose-400' if a.n else '' }}">{{ a.net|usd if a.n else '–' }}</td>
+      <td class="text-right">{{ ('%+.2f'|format(a.avg_r) + 'R') if a.avg_r is not none else '–' }}</td>
+      <td class="text-right">{{ '%.2f'|format(a.profit_factor) if a.profit_factor else '–' }}</td></tr>
+    {%- endmacro %}
+    <div class="grid gap-4 lg:grid-cols-2">
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
+        <h3 class="text-xs font-semibold text-zinc-300 mb-2">With the signal vs against it</h3>
+        <table class="w-full text-xs tabular-nums"><thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal"></th><th class="font-normal text-right">n</th><th class="font-normal text-right">Win</th><th class="font-normal text-right">Net</th><th class="font-normal text-right">Avg R</th><th class="font-normal text-right">PF</th></tr></thead>
+        <tbody class="divide-y divide-zinc-800/70">
+          {{ agg_row("Took the app's direction", h.followed) }}
+          {{ agg_row("Against the app", h.against) }}
+          {{ agg_row("No plan at the time", h.no_plan) }}
+          {% for g, a in h.by_grade %}{{ agg_row("Followed, grade " ~ g, a) }}{% endfor %}
+        </tbody></table>
+        <p class="mt-2 text-[11px] text-zinc-500">A trade is matched to the latest plan for that coin created up to 12 h before you opened it. R uses the first stop seen on the position (or the plan's stop if none was seen).</p>
+      </div>
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
+        <h3 class="text-xs font-semibold text-zinc-300 mb-2">By coin</h3>
+        <table class="w-full text-xs tabular-nums"><thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal">Coin</th><th class="font-normal text-right">n</th><th class="font-normal text-right">Win</th><th class="font-normal text-right">Net</th><th class="font-normal text-right">Avg R</th><th class="font-normal text-right">PF</th></tr></thead>
+        <tbody class="divide-y divide-zinc-800/70">{% for c, a in h.by_coin %}{{ agg_row(c, a) }}{% else %}<tr><td colspan="6" class="py-2 text-zinc-500">No closed trades yet.</td></tr>{% endfor %}</tbody></table>
+      </div>
+    </div>
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
+      <h3 class="text-xs font-semibold text-zinc-300 mb-2">Closed trades</h3>
+      <table class="w-full text-xs tabular-nums"><thead><tr class="text-zinc-500 text-left"><th class="py-1 font-normal">Closed (UTC)</th><th class="font-normal">Coin</th><th class="font-normal">Side</th><th class="font-normal text-right">Entry</th><th class="font-normal text-right">Exit</th><th class="font-normal text-right">Notional</th><th class="font-normal text-right">Fees</th><th class="font-normal text-right">Net P&L</th><th class="font-normal text-right">R</th><th class="font-normal">Exit</th><th class="font-normal">App signal</th></tr></thead>
+      <tbody class="divide-y divide-zinc-800/70">
+      {% for t in h.closed %}<tr>
+        <td class="py-1.5 whitespace-nowrap">{{ t.closed_ms|ms_utc }}</td><td>{{ t.coin }}</td>
+        <td class="{{ 'text-emerald-400' if t.direction=='LONG' else 'text-rose-400' }}">{{ t.direction }}</td>
+        <td class="text-right">{{ t.entry_px|px }}{% if t.partial %}<span class="text-zinc-600" title="Opened before the synced history; entry may be incomplete">*</span>{% endif %}</td>
+        <td class="text-right">{{ t.exit_px|px }}</td><td class="text-right">{{ t.notional|usd(0) }}</td>
+        <td class="text-right" title="{{ 'front-end fee ' ~ (t.builder_fees|usd) if t.builder_fees else '' }}">{{ t.fees|usd }}</td>
+        <td class="text-right {{ 'text-emerald-400' if t.net_pnl > 0 else 'text-rose-400' }}">{{ t.net_pnl|usd }}</td>
+        <td class="text-right">{{ '%+.2f'|format(t.r_multiple) if t.r_multiple is not none else '–' }}</td>
+        <td>{{ t.exit_reason or '–' }}</td>
+        <td>{% if t.plan_id %}<span class="{{ 'text-emerald-400' if t.followed else 'text-rose-400' }}">{{ '✓' if t.followed else '✗' }}</span> {{ t.plan_direction }} {{ t.plan_grade }} · {{ t.plan_confidence }}{% else %}<span class="text-zinc-600">none</span>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="11" class="py-2 text-zinc-500">No closed trades found on this address in the last 180 days.</td></tr>{% endfor %}
+      </tbody></table>
+    </div>
+  </section>
+</div>

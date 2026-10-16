@@ -7,8 +7,8 @@
   <div class="flex flex-wrap items-center gap-3">
     <a href="/" class="text-zinc-500 hover:text-zinc-300 text-sm">← Dashboard</a>
     <h1 class="text-xl font-semibold text-zinc-100">{{ a.symbol }}</h1>
-    {% if v and v.price %}<span class="tabular-nums text-zinc-100">{{ v.price|px }}</span>
-    {% if v.change24 is not none %}<span class="tabular-nums text-sm {{ 'text-emerald-400' if v.change24 >= 0 else 'text-rose-400' }}">{{ v.change24|pct }}</span>{% endif %}{% endif %}
+    {% if v and v.price %}<span class="tabular-nums text-zinc-100" data-live-price="{{ a.id }}" data-v="{{ v.price }}">{{ v.price|px }}</span>
+    <span class="tabular-nums text-sm {{ 'text-emerald-400' if (v.change24 or 0) >= 0 else 'text-rose-400' }}" data-live-chg="{{ a.id }}">{{ v.change24|pct if v.change24 is not none else '' }}</span>{% endif %}
     {% if a.perp_available and a.hl_coin %}<span class="text-xs rounded px-1.5 py-0.5 bg-zinc-800 text-zinc-300">Perp on Hyperliquid · max {{ a.max_leverage }}x</span>
     {% else %}<span class="text-xs rounded px-1.5 py-0.5 bg-zinc-800 text-amber-300">Spot view only{% if a.chain %} · {{ a.chain }}{% endif %}</span>{% endif %}
     <span class="text-xs text-zinc-500">class {{ a.asset_class }}</span>
@@ -105,8 +105,17 @@
 {% block scripts %}
 <script>
 function countdown(exp){return{label:'',start(){const t=()=>{const s=Math.round((exp-Date.now())/1000); this.label = s>0 ? ('expires in '+Math.floor(s/60)+' min '+(s%60)+' s (or if price runs past the entry zone)') : 'expired — refresh for a new plan'}; t(); setInterval(t,1000)}}}
-function chart(id){return{tf:'1h', msg:'', chart:null, series:{}, lines:[],
+const TF_SEC={'15m':900,'1h':3600,'4h':14400,'1d':86400,'1w':604800};
+function chart(id){return{tf:'1h', msg:'', chart:null, series:{}, lines:[], last:null, hooked:false,
+  live(d){
+    const v=d[String(id)]; if(!v||v.price==null||!this.last||!this.series.c) return;
+    const p=v.price, sec=TF_SEC[this.tf]||3600, bucket=Math.floor(Date.now()/1000/sec)*sec;
+    if(bucket>this.last.time){ this.last={time:bucket, open:this.last.close, high:p, low:p, close:p} }
+    else { this.last={...this.last, close:p, high:Math.max(this.last.high,p), low:Math.min(this.last.low,p)} }
+    this.series.c.update(this.last);
+  },
   async load(tf){
+    if(!this.hooked){ this.hooked=true; document.addEventListener('live-prices', e=>this.live(e.detail)) }
     this.tf=tf; this.msg='loading…';
     const r=await fetch('/api/assets/'+id+'/candles?tf='+tf); const d=await r.json();
     if(!d.candles || !d.candles.length){ this.msg=d.error||'no data'; return }
@@ -120,7 +129,7 @@ function chart(id){return{tf:'1h', msg:'', chart:null, series:{}, lines:[],
       this.series.e50=this.chart.addSeries(LC.LineSeries,{color:'#38bdf8',lineWidth:1,priceLineVisible:false,lastValueVisible:false});
       this.series.e200=this.chart.addSeries(LC.LineSeries,{color:'#e879f9',lineWidth:1,priceLineVisible:false,lastValueVisible:false});
     }
-    this.series.c.setData(d.candles); this.series.e20.setData(d.ema20); this.series.e50.setData(d.ema50); this.series.e200.setData(d.ema200);
+    this.series.c.setData(d.candles); this.last={...d.candles[d.candles.length-1]}; this.series.e20.setData(d.ema20); this.series.e50.setData(d.ema50); this.series.e200.setData(d.ema200);
     this.lines.forEach(l=>this.series.c.removePriceLine(l)); this.lines=[];
     const add=(price,color,title,style)=>{ if(price==null) return; this.lines.push(this.series.c.createPriceLine({price, color, lineWidth:1, lineStyle:style??0, axisLabelVisible:true, title})) };
     const last=d.candles[d.candles.length-1].close;

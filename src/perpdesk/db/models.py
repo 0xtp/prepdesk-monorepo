@@ -281,3 +281,77 @@ class AlertState(Base):
     direction: Mapped[str] = mapped_column(String(5))
     grade: Mapped[str] = mapped_column(String(1))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class WalletFill(Base):
+    """Raw Hyperliquid fills of the watched address (read-only sync)."""
+
+    __tablename__ = "wallet_fills"
+    address: Mapped[str] = mapped_column(String(42), primary_key=True)
+    tid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    ts: Mapped[int] = mapped_column(BigInteger, index=True)
+    coin: Mapped[str] = mapped_column(String(40))
+    px: Mapped[float] = mapped_column(Float)
+    sz: Mapped[float] = mapped_column(Float)
+    side: Mapped[str] = mapped_column(String(1))  # B|A
+    dir: Mapped[str] = mapped_column(String(24))
+    start_position: Mapped[float] = mapped_column(Float)
+    closed_pnl: Mapped[float] = mapped_column(Float)
+    fee: Mapped[float] = mapped_column(Float)  # exchange fee (negative = maker rebate)
+    builder_fee: Mapped[float] = mapped_column(Float, default=0.0)  # front-end fee, e.g. Phantom's
+    oid: Mapped[int] = mapped_column(BigInteger)
+    crossed: Mapped[bool] = mapped_column(Boolean)
+    liquidation: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class WalletFunding(Base):
+    __tablename__ = "wallet_funding"
+    address: Mapped[str] = mapped_column(String(42), primary_key=True)
+    coin: Mapped[str] = mapped_column(String(40), primary_key=True)
+    ts: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    usdc: Mapped[float] = mapped_column(Float)
+    szi: Mapped[float] = mapped_column(Float)
+    rate: Mapped[float] = mapped_column(Float)
+
+
+class WalletTrade(Base):
+    """Round-trip trade rebuilt from fills, enriched with the stop/target seen while it was open and the
+    app plan that was live when it was opened."""
+
+    __tablename__ = "wallet_trades"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    address: Mapped[str] = mapped_column(String(42), index=True)
+    open_tid: Mapped[int] = mapped_column(BigInteger)
+    coin: Mapped[str] = mapped_column(String(40))
+    direction: Mapped[str] = mapped_column(String(5))
+    status: Mapped[str] = mapped_column(String(8))  # open|closed
+    partial: Mapped[bool] = mapped_column(Boolean, default=False)
+    opened_ms: Mapped[int] = mapped_column(BigInteger, index=True)
+    closed_ms: Mapped[int | None] = mapped_column(BigInteger)
+    entry_px: Mapped[float | None] = mapped_column(Float)
+    exit_px: Mapped[float | None] = mapped_column(Float)
+    size: Mapped[float] = mapped_column(Float)
+    notional: Mapped[float] = mapped_column(Float)
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    fees: Mapped[float] = mapped_column(Float, default=0.0)  # exchange + builder fees
+    builder_fees: Mapped[float] = mapped_column(Float, default=0.0)
+    funding: Mapped[float] = mapped_column(Float, default=0.0)
+    net_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    n_fills: Mapped[int] = mapped_column(Integer, default=0)
+    leverage: Mapped[int | None] = mapped_column(Integer)
+    liq_px: Mapped[float | None] = mapped_column(Float)
+    sl_first: Mapped[float | None] = mapped_column(Float)  # first stop seen while open (defines R)
+    sl_px: Mapped[float | None] = mapped_column(Float)  # latest stop seen
+    tp_px: Mapped[float | None] = mapped_column(Float)  # latest nearest target seen
+    exit_reason: Mapped[str | None] = mapped_column(String(12))  # target|stop|manual|liquidated|closed
+    r_multiple: Mapped[float | None] = mapped_column(Float)
+    plan_id: Mapped[int | None] = mapped_column(ForeignKey("plans.id", ondelete="SET NULL"))
+    plan_direction: Mapped[str | None] = mapped_column(String(5))
+    plan_grade: Mapped[str | None] = mapped_column(String(1))
+    plan_confidence: Mapped[int | None] = mapped_column(Integer)
+    plan_setup: Mapped[str | None] = mapped_column(String(40))
+    followed: Mapped[bool | None] = mapped_column(Boolean)  # took the app's direction
+    notes: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (Index("ux_wallet_trades_open", "address", "open_tid", unique=True),)

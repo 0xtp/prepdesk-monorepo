@@ -37,6 +37,32 @@ def candles(coin: str, interval: str, start: int, end: int) -> list[dict]:
     return [x for x in out if x["t"] >= start and x["t"] <= end]
 
 
+WALLET = "0x" + "ab" * 20
+_T0 = int(time.time() * 1000) - 3 * 3_600_000
+WALLET_FILLS = [
+    {"coin": "SOL", "px": "100", "sz": "10", "side": "B", "time": _T0, "tid": 1, "startPosition": "0",
+     "dir": "Open Long", "closedPnl": "0", "fee": "0.45", "builderFee": "0.1", "oid": 11, "crossed": True},
+    {"coin": "SOL", "px": "110", "sz": "10", "side": "A", "time": _T0 + 3_600_000, "tid": 2, "startPosition": "10",
+     "dir": "Close Long", "closedPnl": "100", "fee": "0.5", "builderFee": "0.1", "oid": 12, "crossed": True},
+    {"coin": "ETH", "px": "2450", "sz": "1", "side": "A", "time": _T0 + 2 * 3_600_000, "tid": 3, "startPosition": "0",
+     "dir": "Open Short", "closedPnl": "0", "fee": "1.1", "oid": 13, "crossed": True},
+    {"coin": "@107", "px": "1", "sz": "5", "side": "B", "time": _T0, "tid": 4, "startPosition": "0", "dir": "Buy",
+     "closedPnl": "0", "fee": "0", "oid": 14, "crossed": True},
+]
+WALLET_STATE = {
+    "assetPositions": [{"type": "oneWay", "position": {
+        "coin": "ETH", "szi": "-1.0", "entryPx": "2450", "positionValue": "2440", "unrealizedPnl": "10",
+        "returnOnEquity": "0.04", "liquidationPx": "2600", "marginUsed": "245", "maxLeverage": 25,
+        "leverage": {"type": "isolated", "value": 10, "rawUsd": "2695"},
+        "cumFunding": {"allTime": "-0.5", "sinceOpen": "-0.5", "sinceChange": "-0.5"}}}],
+    "marginSummary": {"accountValue": "1000.0", "totalNtlPos": "2440", "totalRawUsd": "0", "totalMarginUsed": "245"},
+    "withdrawable": "755.0", "time": 0,
+}
+WALLET_ORDERS = [{"coin": "ETH", "side": "B", "isTrigger": True, "triggerPx": "2420", "limitPx": "2420",
+                  "orderType": "Take Profit Market", "reduceOnly": True, "isPositionTpsl": True, "sz": "1", "oid": 99,
+                  "timestamp": 0, "triggerCondition": "Price below 2420", "origSz": "1"}]
+
+
 def info_handler(request: httpx.Request) -> httpx.Response:
     body = json.loads(request.content)
     typ = body["type"]
@@ -64,6 +90,18 @@ def info_handler(request: httpx.Request) -> httpx.Response:
                                                  "dayNtlVlm": "100000"}]])
     if typ == "l2Book":
         return httpx.Response(200, json={"levels": [[{"px": "100", "sz": "10", "n": 1}], [{"px": "100.1", "sz": "10", "n": 1}]]})
+    if typ == "userFillsByTime":
+        return httpx.Response(200, json=[f for f in WALLET_FILLS if f["time"] >= body["startTime"]])
+    if typ == "userFunding":
+        rows = [{"time": _T0 + 2 * 3_600_000 + 1800_000, "hash": "0x0",
+                 "delta": {"type": "funding", "coin": "ETH", "usdc": "0.5", "szi": "-1", "fundingRate": "0.00001"}}]
+        return httpx.Response(200, json=[r for r in rows if r["time"] >= body["startTime"]])
+    if typ == "clearinghouseState":
+        return httpx.Response(200, json=WALLET_STATE)
+    if typ == "frontendOpenOrders":
+        return httpx.Response(200, json=WALLET_ORDERS)
+    if typ == "allMids":
+        return httpx.Response(200, json={c: str(_price(c, now)) for c in COINS})
     return httpx.Response(400, json={"error": typ})
 
 

@@ -219,6 +219,43 @@ def delete_trade(trade_id: int, s: Session = Depends(db)) -> Response:
     return Response(status_code=200, headers={"HX-Refresh": "true"})
 
 
+# ---------------------------------------------------------------- live prices + watch-only wallet
+
+
+@router.get("/api/prices")
+async def prices(ids: str = "", s: Session = Depends(db)) -> JSONResponse:
+    from perpdesk.prices import live_prices
+    from perpdesk.web.app import fmt_pct, fmt_px
+
+    want = [int(x) for x in ids.split(",") if x.strip().isdigit()][:100]
+    assets = list(s.execute(select(Asset).where(Asset.id.in_(want))).scalars()) if want else []
+    out = await live_prices(_hl(s), assets)
+    return JSONResponse({str(k): {**v, "text": fmt_px(v["price"]), "change_text": fmt_pct(v["change24"])
+                                  if v.get("change24") is not None else ""} for k, v in out.items()},
+                        headers={"Cache-Control": "no-store"})
+
+
+async def _wallet_panel(request: Request, s: Session, force: bool) -> HTMLResponse:
+    from perpdesk.wallet import report as wreport
+    from perpdesk.wallet.sync import sync_wallet
+
+    st = settings_for(s)
+    res = await sync_wallet(s, _hl(s), st, force=force)
+    s.commit()
+    return templates.TemplateResponse(request, "_wallet_panel.html", {
+        "w": wreport.positions_view(s, st), "h": wreport.history_view(s, st), "sync": res, "settings": st})
+
+
+@router.get("/api/wallet/panel", response_class=HTMLResponse)
+async def wallet_panel(request: Request, s: Session = Depends(db)) -> HTMLResponse:
+    return await _wallet_panel(request, s, force=False)
+
+
+@router.post("/api/wallet/sync", response_class=HTMLResponse)
+async def wallet_sync(request: Request, s: Session = Depends(db)) -> HTMLResponse:
+    return await _wallet_panel(request, s, force=True)
+
+
 # ---------------------------------------------------------------- cron / webhooks / health
 
 

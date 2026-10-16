@@ -21,7 +21,7 @@ Every plan is logged and scored against what price actually did. You place trade
 3. [Run the backtest](#3-backtest)
 4. [How to read a plan](#4-how-to-read-a-plan)
 5. [Grades, gates and the Track Record](#5-grades-gates-and-the-track-record)
-6. [Configuration reference](#6-configuration)
+6. [Configuration reference](#6-configuration) (includes My trades and live prices)
 7. [Local development](#7-local-development)
 8. [Architecture](#8-architecture)
 9. [Phase 2 outline](#9-phase-2-outline)
@@ -127,6 +127,27 @@ Invalid if: 1H close above 107.383 (resistance ×3 (4H)) · unfilled after 60 mi
 
 Every variable is documented inline in [`.env.example`](.env.example). Weights and risk defaults can also be changed at runtime on the **Settings** page; they are stored in the DB, and "Reset to env" clears them. The Settings page also shows the effective config (secrets masked), per-source health and the scheduled-job heartbeat. The **Usage** page shows Claude API spend (today, this month, all time, per call) and your remaining balance. Anthropic has no balance API, so enter the credit you loaded as `LLM_CREDIT_USD`.
 
+### My trades (watch-only wallet)
+
+Paste your public Hyperliquid address (Phantom: your Ethereum/EVM address) on **My trades**, or set `WATCH_WALLET`. This is the assisted phase: the app only reads, and you make every change.
+
+- **Reads only public data** by address: `clearinghouseState` (positions, liquidation, margin), `frontendOpenOrders` (your TP/SL triggers), `userFillsByTime` and `userFunding`. No key is ever requested, and nothing can trade.
+- **When it syncs:** on every scheduled tick (10 min), on page load and every 60 s while the page is open, and on "Sync now". The first sync pulls up to 180 days of fills. With Telegram enabled, it sends a message when a position opens or closes.
+- **What it shows for each open position:** entry, mark (live), liquidation, leverage, your stop and target, funding, the app's current call for that coin, and advice on what to change. Advice covers:
+  - no stop set;
+  - liquidation before or just behind the stop;
+  - target closer than the stop (low R:R) and the win rate that needs;
+  - stop risk far above the configured % of margin;
+  - signal flipped against you;
+  - price past TP1, so move the stop to break-even;
+  - more leverage than the plan needs.
+- **History:** fills are rebuilt into round-trip trades. Each trade shows net P&L after exchange fees, front-end (builder) fees such as Phantom's, and funding. It also shows the exit type (target, stop, manual or liquidated) and R, measured against the first stop seen.
+- **Matching to signals:** each trade is matched to the plan that was live when you opened it (the latest plan for that coin within the 12 hours before). The page then compares trades that followed the app with trades that went against it, by coin and by grade. Stored in `wallet_fills`, `wallet_funding` and `wallet_trades`.
+
+### Live prices
+
+Dashboard cards, the asset page header and chart, and the My trades mark price update every 60 seconds in the browser without reloading. Polling pauses while the tab is hidden. Only the current price and 24h change move: entry, stop, targets and liquidation stay as computed until the next analysis. The prices come from `/api/prices` (Hyperliquid contexts cached for about 20 s; DEX prices for 60 s).
+
 ## 7. Local development
 
 ```bash
@@ -156,6 +177,8 @@ src/perpdesk/
   jobs/tick.py       tick (every few min) and daily jobs
   web/               FastAPI app, routes, Jinja templates, static (Tailwind CSS, vendored JS)
   llm/               optional Claude explanation (numeric guard) + usage ledger
+  wallet/            watch-only account sync, trade rebuild from fills, position advice
+  prices.py          lightweight live prices for the browser poller
   alerts/            optional read-only Telegram
   execution/         Phase 2 interface + NoopExecutor
 api/index.py         Vercel entrypoint

@@ -6,6 +6,7 @@ overrides live in the DB and are merged on top of env values via `effective_sett
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from functools import lru_cache
 from typing import Annotated, Any
@@ -39,6 +40,7 @@ RUNTIME_KEYS = (
     "min_liq_buffer_atr",
     "plan_ttl_min",
     "account_equity_usd",
+    "watch_wallet",
     "llm_credit_usd",
     "llm_monthly_budget_usd",
 )
@@ -142,6 +144,9 @@ class Settings(BaseSettings):
     llm_credit_since: date | None = None
     llm_monthly_budget_usd: float | None = Field(None, ge=0)
 
+    # --- Watch-only wallet (My trades page). Public address only; never a private key. ---
+    watch_wallet: str = ""
+
     # --- Telegram ---
     telegram_enabled: bool = False
     telegram_bot_token: str = ""
@@ -179,6 +184,14 @@ class Settings(BaseSettings):
     @classmethod
     def _ids(cls, v: Any) -> Any:
         return [int(x) for x in _csv(v)] if v not in (None, "") else []
+
+    @field_validator("watch_wallet", mode="before")
+    @classmethod
+    def _wallet(cls, v: Any) -> Any:
+        v = str(v or "").strip()
+        if v and not re.fullmatch(r"0x[0-9a-fA-F]{40}", v):
+            raise ValueError("WATCH_WALLET must be a 0x… EVM address (42 characters). Never paste a private key.")
+        return v.lower()
 
     @field_validator("database_url")
     @classmethod

@@ -146,3 +146,50 @@ def test_auth(monkeypatch, tmp_path):
     get_settings.cache_clear()
     dbs.get_engine.cache_clear()
     dbs._factory.cache_clear()
+
+
+def test_wallet_tracking_and_live_prices(app_env):
+    c = app_env
+    assert c.get("/api/cron/tick?budget=120", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    page = c.get("/wallet")
+    assert page.status_code == 200 and "My trades" in page.text and "wallet-panel" not in page.text
+    bad = c.post("/wallet/address", data={"address": "not-an-address"}, follow_redirects=False)
+    assert bad.status_code == 303 and "error=" in bad.headers["location"]
+    ok = c.post("/wallet/address", data={"address": fakes.WALLET.upper().replace("0X", "0x")}, follow_redirects=False)
+    assert ok.status_code == 303 and "error" not in ok.headers["location"]
+    assert "wallet-panel" in c.get("/wallet").text
+    panel = c.post("/api/wallet/sync")
+    assert panel.status_code == 200, panel.text
+    t = panel.text
+    assert "ETH" in t and "No stop-loss order" in t and "$1,000.00" in t
+    assert "SOL" in t and "$98.85" in t  # 100 closed PnL - 0.95 exchange fees - 0.20 front-end fees
+    assert "front-end $0.20" in t
+    assert "@107" not in t  # spot fills ignored
+    # second sync is idempotent (no duplicate fills/trades)
+    c.post("/api/wallet/sync")
+    from perpdesk.db.models import WalletFill, WalletTrade
+    from perpdesk.db.session import session_scope
+
+    with session_scope() as s:
+        assert s.query(WalletFill).count() == 4
+        trades = {(x.coin, x.status): x for x in s.query(WalletTrade).all()}
+        assert set(trades) == {("SOL", "closed"), ("ETH", "open")}
+        eth = trades[("ETH", "open")]
+        assert eth.tp_px == 2420 and eth.liq_px == 2600 and eth.leverage == 10 and eth.funding == 0.5
+        sol = trades[("SOL", "closed")]
+        assert sol.plan_id is None or sol.plan_direction in ("LONG", "SHORT")
+    # tick syncs the wallet too
+    out = c.get("/api/cron/tick?budget=5", headers={"Authorization": "Bearer s3cret"}).json()
+    assert out["wallet"]["error"] is None
+    # live prices
+    from perpdesk.db.models import Asset
+
+    with session_scope() as s:
+        ids = [a.id for a in s.query(Asset).all()]
+    r = c.get("/api/prices?ids=" + ",".join(map(str, ids)) + ",x")
+    assert r.status_code == 200
+    d = r.json()
+    assert len(d) == len(ids) and all(v["price"] > 0 and v["text"] for v in d.values())
+    assert c.get("/api/prices").json() == {}
+    home = c.get("/")
+    assert "data-live-price" in home.text and "/api/prices" in home.text

@@ -3,6 +3,13 @@
 Status: **design only. Nothing here is implemented.** Phase 1 ships an `execution/` package with
 an `Executor` protocol and a `NoopExecutor`. The app refuses to start if `EXECUTION_ENABLED=true`.
 
+**Before Phase 2: the assisted phase (implemented).** The My trades page watches the user's address read-only, logs every real trade, and advises on stops, targets and leverage. Automation should start only after the record of real, signal-matched trades meets the entry bar:
+- at least 10–20 closed trades as a first look;
+- at least `MIN_SAMPLE_FOR_STATS` before anything is automated;
+- positive net expectancy after all fees, including the front-end builder fee.
+
+`wallet_trades` is that evidence, and Phase 2 reuses its reconciliation (positions and open orders by master address).
+
 ## 1. Scope and venue
 
 - **Hyperliquid only.** Phantom has no trading API. Its perps are routed through Hyperliquid anyway, so automating them means automating Hyperliquid directly.

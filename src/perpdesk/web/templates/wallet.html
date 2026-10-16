@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}My trades · {{ app_name() }}{% endblock %}
+{% block content %}
+<div class="flex flex-col gap-5">
+  <div class="flex flex-wrap items-end gap-3">
+    <div class="flex-1 min-w-[16rem]">
+      <h1 class="text-xl font-semibold text-zinc-100">My trades</h1>
+      <p class="text-sm text-zinc-500">Watch-only. The app reads your public Hyperliquid account by address: positions, TP/SL orders and fills. It never asks for a key and cannot place, change or cancel orders. You make every change yourself.</p>
+    </div>
+    {% if settings.watch_wallet %}
+    <button class="rounded-md border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800" hx-post="/api/wallet/sync" hx-target="#wallet-panel" hx-indicator="#w-ind">↻ Sync now</button>
+    <span id="w-ind" class="htmx-indicator text-xs text-zinc-500">syncing…</span>
+    {% endif %}
+  </div>
+  <form method="post" action="/wallet/address" class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-wrap items-end gap-3 text-sm">
+    <label class="flex-1 min-w-[18rem] text-xs text-zinc-400">Hyperliquid address to watch
+      <input name="address" value="{{ settings.watch_wallet }}" placeholder="0x… (42 characters)" autocomplete="off" spellcheck="false"
+        class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 font-mono text-sm text-zinc-100"></label>
+    <button class="rounded-md bg-indigo-500 hover:bg-indigo-400 text-white px-3 py-1.5">Save</button>
+    <p class="w-full text-xs text-zinc-500">Phantom trades perps on Hyperliquid from your Phantom <b>Ethereum (EVM) address</b>. Paste that address; you can check it shows your positions at app.hyperliquid.xyz → Explorer. Only paste a public address, never a seed phrase or private key.</p>
+    {% if error %}<p class="w-full text-xs text-rose-400">Not saved: {{ error }}</p>{% endif %}
+  </form>
+  {% if settings.watch_wallet %}
+  <div id="wallet-panel" hx-get="/api/wallet/panel" hx-trigger="load, every 60s" hx-swap="innerHTML">
+    <p class="text-sm text-zinc-500">Loading positions and history… (the first sync pulls up to 180 days of fills)</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
