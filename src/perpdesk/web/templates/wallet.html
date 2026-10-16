@@ -1,28 +1,57 @@
 {% extends "base.html" %}
 {% block title %}My trades · {{ app_name() }}{% endblock %}
 {% block content %}
-<div class="flex flex-col gap-5">
-  <div class="flex flex-wrap items-end gap-3">
-    <div class="flex-1 min-w-[16rem]">
+{% set addr = settings.watch_wallet %}
+<div class="flex flex-col gap-5" x-data="{tab: (()=>{try{return localStorage.getItem('pd-wtab')||'open'}catch(e){return 'open'}})(), edit: {{ 'false' if addr else 'true' }}, copied:false}"
+     x-init="$watch('tab', v=>{try{localStorage.setItem('pd-wtab',v)}catch(e){}})">
+  <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <div class="mr-auto">
       <h1 class="text-xl font-semibold text-zinc-100">My trades</h1>
-      <p class="text-sm text-zinc-500">Watch-only. The app reads your public Hyperliquid account by address: positions, TP/SL orders and fills. It never asks for a key and cannot place, change or cancel orders. You make every change yourself.</p>
+      <p class="text-xs text-zinc-500">Watch-only · read from Hyperliquid · you make every change yourself</p>
     </div>
-    {% if settings.watch_wallet %}
-    <button class="rounded-md border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800" hx-post="/api/wallet/sync" hx-target="#wallet-panel" hx-indicator="#w-ind">↻ Sync now</button>
-    <span id="w-ind" class="htmx-indicator text-xs text-zinc-500">syncing…</span>
+    {% if addr %}
+    <div class="flex items-center gap-1 rounded-full bg-zinc-900 ring-1 ring-zinc-800 pl-3 pr-1 py-1 text-xs">
+      <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+      <button type="button" class="font-mono text-zinc-300 hover:text-white" title="Copy address"
+        @click="navigator.clipboard.writeText('{{ addr }}'); copied=true; setTimeout(()=>copied=false,1200)" x-text="copied ? 'copied ✓' : '{{ addr[:6] }}…{{ addr[-4:] }}'"></button>
+      <button type="button" class="rounded-full px-2 py-0.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800" @click="edit=!edit">Change</button>
+    </div>
+    <button class="inline-flex items-center gap-1.5 rounded-full bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-medium px-3 py-1.5"
+      hx-post="/api/wallet/sync" hx-target="#wallet-panel" hx-indicator="#w-ind">
+      <span id="w-ind" class="htmx-indicator-spin">↻</span> Sync</button>
     {% endif %}
   </div>
-  <form method="post" action="/wallet/address" class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-wrap items-end gap-3 text-sm">
-    <label class="flex-1 min-w-[18rem] text-xs text-zinc-400">Hyperliquid address to watch
-      <input name="address" value="{{ settings.watch_wallet }}" placeholder="0x… (42 characters)" autocomplete="off" spellcheck="false"
-        class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 font-mono text-sm text-zinc-100"></label>
-    <button class="rounded-md bg-indigo-500 hover:bg-indigo-400 text-white px-3 py-1.5">Save</button>
-    <p class="w-full text-xs text-zinc-500">Phantom trades perps on Hyperliquid from your Phantom <b>Ethereum (EVM) address</b>. Paste that address; you can check it shows your positions at app.hyperliquid.xyz → Explorer. Only paste a public address, never a seed phrase or private key.</p>
-    {% if error %}<p class="w-full text-xs text-rose-400">Not saved: {{ error }}</p>{% endif %}
+
+  {% if not addr %}
+  <section class="rounded-2xl border border-zinc-800 bg-gradient-to-br from-indigo-500/10 to-zinc-900/60 p-5 sm:p-6">
+    <h2 class="text-base font-semibold text-zinc-100">Track your Phantom / Hyperliquid trades</h2>
+    <p class="mt-1 text-sm text-zinc-400">See your open positions next to the app's plan, get told what to fix (missing stop, too much leverage, a target closer than the stop), and build a record of which signals actually make you money.</p>
+    <ol class="mt-4 grid gap-3 sm:grid-cols-3 text-sm">
+      <li class="rounded-xl bg-zinc-950/60 p-3"><span class="text-indigo-300 font-semibold">1.</span> In Phantom, copy your <b>Ethereum</b> address (starts with 0x).</li>
+      <li class="rounded-xl bg-zinc-950/60 p-3"><span class="text-indigo-300 font-semibold">2.</span> Paste it below. Public address only, never a seed phrase or key.</li>
+      <li class="rounded-xl bg-zinc-950/60 p-3"><span class="text-indigo-300 font-semibold">3.</span> The app syncs every 10 min, and every minute while this page is open.</li>
+    </ol>
+  </section>
+  {% endif %}
+
+  <form method="post" action="/wallet/address" x-show="edit" x-cloak
+        class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-col sm:flex-row sm:items-end gap-3">
+    <label class="flex-1 text-xs text-zinc-400">Hyperliquid address (your Phantom Ethereum address)
+      <input name="address" value="{{ addr }}" placeholder="0x…" autocomplete="off" spellcheck="false"
+        class="mt-1 w-full rounded-lg bg-zinc-950 border-zinc-700 font-mono text-sm text-zinc-100"></label>
+    <div class="flex gap-2">
+      <button class="rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-sm px-4 py-2">Save</button>
+      {% if addr %}<button type="button" class="rounded-lg border border-zinc-700 text-sm px-3 py-2 hover:bg-zinc-800" @click="edit=false">Cancel</button>{% endif %}
+    </div>
   </form>
-  {% if settings.watch_wallet %}
+  {% if error %}<p class="-mt-3 text-xs text-rose-400">Not saved: {{ error }}</p>{% endif %}
+
+  {% if addr %}
   <div id="wallet-panel" hx-get="/api/wallet/panel" hx-trigger="load, every 60s" hx-swap="innerHTML">
-    <p class="text-sm text-zinc-500">Loading positions and history… (the first sync pulls up to 180 days of fills)</p>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 animate-pulse">
+      {% for _ in range(4) %}<div class="h-20 rounded-xl bg-zinc-900"></div>{% endfor %}
+    </div>
+    <p class="mt-3 text-xs text-zinc-500">Loading positions and history… the first sync reads up to 180 days of fills.</p>
   </div>
   {% endif %}
 </div>

@@ -17,7 +17,7 @@ from perpdesk.analysis.indicators import ema
 from perpdesk.assets import favorites as fav
 from perpdesk.assets.registry import search as registry_search
 from perpdesk.db.models import Asset, JobHeartbeat, LatestView, PlanRow, UserTrade
-from perpdesk.pipeline import Context, analyse_asset, dex_frames, load_context, perp_frames
+from perpdesk.pipeline import Context, analyse_asset, dex_frames, leverage_scenarios, load_context, perp_frames
 from perpdesk.sources.hyperliquid import Hyperliquid
 from perpdesk.store import load_candles, persist_health, settings_for
 from perpdesk.timeutil import index_ms
@@ -116,7 +116,9 @@ async def recompute_plan(asset_id: int, request: Request, margin: float = Form(.
     r_pct = float(risk_pct) if risk_pct.strip() else None
     res = await analyse_asset(s, _hl(s), a, await _context(s), st, margin=margin, risk_usd=r_usd, risk_pct=r_pct,
                               save=False)
+    lev_rows = leverage_scenarios(a, res.view, st, margin) if res.view else []
     return templates.TemplateResponse(request, "_plan.html", {"v": res.view, "a": a, "settings": st,
+                                                              "lev_rows": lev_rows,
                                                               "inputs": {"margin": margin, "risk_usd": risk_usd,
                                                                          "risk_pct": risk_pct}})
 

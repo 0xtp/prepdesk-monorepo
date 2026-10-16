@@ -90,6 +90,11 @@ Invalid if: 1H close above 107.383 (resistance ×3 (4H)) · unfilled after 60 mi
 - **Stop:** beyond the nearest invalidating structure plus an ATR buffer, never closer than `MIN_SL_ATR` × ATR.
 - **Targets:** TP1 at the first significant opposing level or 1.5R, whichever is more conservative; TP2 at the next level, 2.5–3R. Take 50% at TP1 and move the stop to breakeven.
 - **Size:** `quantity = risk $ ÷ loss per coin at the stop` (fees, slippage and funding included). Leverage is an *output*: the smallest whole number that fits the notional within your margin, capped by `MAX_LEVERAGE`, the asset's Hyperliquid maximum and the liquidation check. If a cap binds, the size shrinks; the risk never grows.
+- **Leverage slider** (asset page, from 2x up to the asset's Hyperliquid maximum):
+  - **What changes:** at your margin, size = margin × leverage. The recommended leverage, marked ▲, is the plan as designed. Lower leverage keeps the plan's stop and targets at a smaller size.
+  - **Above the recommended leverage:** the stop is tightened so the loss still equals your risk budget, and TP1/TP2 scale to keep the same reward-to-risk. The panel always shows what keeping the plan's stop would cost at that leverage.
+  - **Colours:** green = the plan; amber = tighter stop and targets than the tested plan; red = the stop is inside normal noise (under `MIN_SL_ATR` × ATR), liquidation comes before the stop, or no stop can hold the risk once fees are counted.
+  - **Calculation:** every step is precomputed on the server with the same liquidation and fee maths, so dragging is instant.
 - **Liquidation:** isolated margin with Hyperliquid's margin tiers (maintenance = half the initial margin at max leverage). The stop must sit at least `MIN_LIQ_BUFFER_ATR` × ATR before liquidation, or leverage is lowered and a flag added.
 - **R:R** is after fees and expected funding. **Win %** is P(TP1 before SL) from out-of-sample backtests of the same setup × asset × direction (falling back to asset class, then all assets), calibrated on the confidence score, with a 95% range and sample size. "~ low sample" means too few trades. **Break-even** is the win rate needed at this R:R. **EV** is the expected $ per trade.
 - **Copy plan** copies the compact block above for Hyperliquid or Phantom. **I took this** records your real fill so your own trades are tracked separately.

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import functools
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -447,7 +447,41 @@ def plan_dict(p: Plan) -> dict[str, Any]:
         "win": None if p.win is None else {"p": p.win.p, "lo": p.win.lo, "hi": p.win.hi, "n": p.win.n,
                                            "scope": p.win.scope, "low_sample": p.win.low_sample},
         "proof": p.proof, "live_proof": p.live_proof, "copy": p.copy_text(), "setup_label": p.setup_label,
+        "costs": None if p.costs is None else asdict(p.costs),
     }
+
+
+def leverage_scenarios(a: Asset, view: dict[str, Any], settings: Settings, margin: float | None = None
+                       ) -> list[dict[str, Any]]:
+    """What-if table for the plan's leverage slider: one row per leverage from 1x (or 2x) to the asset's max."""
+    from perpdesk.plan import Costs, leverage_scenario
+
+    if not view or view.get("error") or not view.get("plan") or view["plan"].get("spot_only"):
+        return []
+    p, meta = view["plan"], meta_of(a)
+    atr = float(view.get("atr") or 0)
+    if atr <= 0 or not meta.is_perp:
+        return []
+    pc = plan_config(settings, a.asset_class)
+    if p.get("costs"):
+        c = Costs(**p["costs"])
+    else:  # payload saved before costs were stored: rebuild them from the current config
+        limit = p.get("entry_type") == "limit"
+        c = Costs((pc.maker_fee_bps if limit else pc.taker_fee_bps + pc.slippage_bps) / 1e4, pc.taker_fee_bps / 1e4,
+                  pc.slippage_bps / 1e4, float(view.get("funding") or 0.0), float(pc.max_hold_hours))
+    m = margin if margin and margin > 0 else settings.default_margin_usd
+    budget = float(p.get("risk_target") or p["risk_usd"])
+    rec = int(p.get("leverage") or 1)
+    out = []
+    for lev in range(min(2, rec), max(meta.max_leverage, 1) + 1):
+        sc = leverage_scenario(p["direction"], float(p["entry"]), float(p["sl"]), float(p["tp1"]), float(p["tp2"]), atr,
+                               m, budget, lev, meta, c, pc.min_sl_atr, pc.min_liq_buffer_atr,
+                               plan_notional=float(p["notional"]) if lev == rec else None)
+        d = asdict(sc)
+        d["messages"] = list(sc.messages)
+        d["recommended"] = lev == rec
+        out.append(d)
+    return out
 
 
 # ---------------------------------------------------------------- plan logging

@@ -134,3 +134,10 @@ def test_dex_address_detection():
     assert looks_like_address("0x940181a94A35A4569E4529A3CDfB74e38FD98631")
     assert looks_like_address("DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263")
     assert not looks_like_address("SOL")
+
+
+def test_fmt_usd_negative_sign_first():
+    from perpdesk.web.app import fmt_usd
+
+    assert fmt_usd(-14.894) == "-$14.89" and fmt_usd(3.5) == "$3.50" and fmt_usd(-0.001) == "$0.00"
+    assert fmt_usd(None) == "–" and fmt_usd(1234.5, 0) == "$1,234"

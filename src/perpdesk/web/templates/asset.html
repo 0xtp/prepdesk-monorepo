@@ -105,6 +105,24 @@
 {% block scripts %}
 <script>
 function countdown(exp){return{label:'',start(){const t=()=>{const s=Math.round((exp-Date.now())/1000); this.label = s>0 ? ('expires in '+Math.floor(s/60)+' min '+(s%60)+' s (or if price runs past the entry zone)') : 'expired — refresh for a new plan'}; t(); setInterval(t,1000)}}}
+function fmtPx(x){ if(x==null||!isFinite(x)) return '–'; const a=Math.abs(x);
+  if(a>=1000) return x.toLocaleString('en-US',{minimumFractionDigits:1,maximumFractionDigits:1});
+  if(a>=100) return x.toFixed(2); if(a>=10) return x.toFixed(3); if(a>=1) return String(Number(x.toPrecision(4)));
+  return String(Number(x.toPrecision(4))) }
+const TONES={ok:{text:'text-emerald-300',hex:'#34d399',chip:'bg-emerald-500/10 text-emerald-300 ring-emerald-500/30',msg:'bg-emerald-500/10 text-emerald-100'},
+  warn:{text:'text-amber-300',hex:'#fbbf24',chip:'bg-amber-500/10 text-amber-300 ring-amber-500/30',msg:'bg-amber-500/10 text-amber-100'},
+  danger:{text:'text-rose-300',hex:'#fb7185',chip:'bg-rose-500/10 text-rose-300 ring-rose-500/30',msg:'bg-rose-500/10 text-rose-100'}};
+function levSlider(rows, rec, sym, dir){return{rows, rec, sym, dir, lev:rec, copied:false,
+  get min(){return this.rows[0].lev}, get max(){return this.rows[this.rows.length-1].lev},
+  get s(){return this.rows.find(r=>r.lev===this.lev)||this.rows[0]},
+  get tone(){return TONES[this.s.level]||TONES.warn},
+  get badge(){ if(this.lev===this.rec) return '✓ Recommended'; return {ok:'✓ OK',warn:'⚠ Riskier',danger:'⛔ Dangerous'}[this.s.level] },
+  pos(v){ return this.max>this.min ? (v-this.min)/(this.max-this.min)*100 : 0 },
+  px(x){ return fmtPx(x) }, usd(x,d=2){ return '$'+Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}) },
+  copy(){ const s=this.s; const t=[sym+'-PERP '+dir+' · '+this.lev+'x isolated', 'Stop: '+fmtPx(s.sl), 'TP1 (50%): '+fmtPx(s.tp1)+' · TP2 (50%): '+fmtPx(s.tp2),
+      'Size: '+s.qty+' '+sym+' ($'+s.notional.toFixed(0)+') · risk $'+s.risk_usd.toFixed(2), 'Liquidation: '+(s.liq?fmtPx(s.liq):'none')].join('\n');
+    navigator.clipboard.writeText(t); this.copied=true; setTimeout(()=>this.copied=false,1500) }
+}}
 const TF_SEC={'15m':900,'1h':3600,'4h':14400,'1d':86400,'1w':604800};
 function chart(id){return{tf:'1h', msg:'', chart:null, series:{}, lines:[], last:null, hooked:false,
   live(d){

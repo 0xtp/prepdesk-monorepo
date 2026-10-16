@@ -228,3 +228,60 @@ def test_plan_invariants(direction, price, atr_pct, rel_levels, sz, maxlev, cfg_
         if p.leverage > 1:
             assert (p.sl - p.liq_price) * d >= buffer * atr - 1e-6 * price
     assert math.isfinite(p.rr_tp1)
+
+
+# ---------------------------------------------------------------- leverage slider (what-if)
+
+def _costs(funding=0.0):
+    from perpdesk.plan import Costs
+
+    return Costs(0.00015, 0.00045, 0.0003, funding, 12)
+
+
+def test_leverage_scenario_plan_mode_and_smaller_size():
+    from perpdesk.plan import leverage_scenario
+
+    meta = AssetMeta("ZEC", True, 2, 10, [], False, "Mid")
+    # entry 100, stop 95 (5 away, ATR 2.5 -> 2 ATR), budget $20, margin $100
+    sc = leverage_scenario("LONG", 100, 95, 110, 120, 2.5, 100, 20, 3, meta, _costs(), 0.8, 3.0, plan_notional=300)
+    assert sc.feasible and sc.mode == "plan" and sc.sl == 95 and sc.tp1 == 110 and sc.level == "ok"
+    assert sc.risk_usd <= 20 and sc.qty == 3
+    lo = leverage_scenario("LONG", 100, 95, 110, 120, 2.5, 100, 20, 2, meta, _costs(), 0.8, 3.0)
+    assert lo.mode == "plan" and lo.risk_usd < 20 and "smaller size" in lo.messages[0]
+
+
+def test_leverage_scenario_scales_stop_and_flags_noise_and_keep_stop_loss():
+    from perpdesk.plan import leverage_scenario, per_unit_loss
+
+    meta = AssetMeta("ZEC", True, 2, 10, [], False, "Mid")
+    sc = leverage_scenario("LONG", 100, 95, 110, 120, 2.5, 100, 20, 10, meta, _costs(), 0.8, 3.0)
+    assert sc.feasible and sc.mode == "scaled"
+    assert 95 < sc.sl < 100 and 100 < sc.tp1 < 110 and sc.tp1 < sc.tp2
+    assert sc.risk_usd == pytest.approx(20, rel=0.05)
+    assert sc.qty * per_unit_loss(100, sc.sl, _costs(), 1) <= 20 * 1.02
+    assert sc.level == "danger" and "inside normal price noise" in sc.messages[0]
+    assert sc.keep_sl_loss == pytest.approx(10 * per_unit_loss(100, 95, _costs(), 1))
+    assert any("Keeping the plan's stop" in m and "of your margin" in m for m in sc.messages)
+    # moderate over-leverage: stop tightened but still > 0.8 ATR -> warn, not danger
+    mid = leverage_scenario("SHORT", 100, 108, 90, 80, 2.5, 100, 20, 4, meta, _costs(), 0.8, 3.0)
+    assert mid.mode == "scaled" and mid.level == "warn" and 100 < mid.sl < 108 and mid.tp1 < 100
+
+
+def test_leverage_scenario_infeasible_cases_and_liq_before_stop():
+    from perpdesk.plan import leverage_scenario
+
+    meta = AssetMeta("ZEC", True, 2, 10, [(0.0, 10), (500.0, 5)], False, "Mid")
+    tier = leverage_scenario("LONG", 100, 95, 110, 120, 2.5, 100, 20, 8, meta, _costs(), 0.8, 3.0)
+    assert not tier.feasible and "at most 5x" in tier.messages[0]
+    tiny = leverage_scenario("LONG", 100, 95, 110, 120, 2.5, 3, 1, 2, AssetMeta("Z", True, 2, 10, [], False, "Mid"),
+                             _costs(), 0.8, 3.0)
+    assert not tiny.feasible and "minimum" in tiny.messages[0]
+    fees = leverage_scenario("LONG", 100, 95, 110, 120, 2.5, 100, 0.3, 10, AssetMeta("Z", True, 2, 10, [], False, "Mid"),
+                             _costs(), 0.8, 3.0)
+    assert not fees.feasible and "fees alone" in fees.messages[0] and "Keeping the plan's stop" in fees.messages[1]
+    # wide stop at high leverage with a generous budget: liquidation lands before the plan's stop
+    big = AssetMeta("Z", True, 2, 20, [], False, "Mid")
+    liq = leverage_scenario("LONG", 100, 80, 130, 150, 5, 100, 10_000, 10, big, _costs(), 0.8, 3.0)
+    assert liq.mode == "plan" and liq.level == "danger" and "Liquidation" in liq.messages[0] and liq.keep_sl_liquidated
+    near = leverage_scenario("LONG", 100, 94, 110, 120, 5, 100, 10_000, 10, big, _costs(), 0.8, 3.0)
+    assert near.level == "warn" and any("ATR beyond the stop" in m for m in near.messages)

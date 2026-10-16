@@ -45,13 +45,20 @@ def positions_view(s: Session, settings: Settings) -> dict[str, Any]:
     views = _views_by_coin(s)
     open_rows = {r.coin: r for r in s.execute(select(WalletTrade).where(WalletTrade.address == address,
                                                                         WalletTrade.status == "open")).scalars()}
-    positions = []
+    order = {"danger": 0, "warn": 1, "info": 2, "ok": 3}
+    positions: list[dict[str, Any]] = []
+    upnl, actions = 0.0, 0
     for p in positions_from_state(state):
         a, v = views.get(p.coin, (None, None))
-        positions.append({"p": p.as_dict(), "advice": advise(p, v, settings.risk_pct_of_margin), "asset": a,
+        adv = sorted(advise(p, v, settings.risk_pct_of_margin), key=lambda x: order.get(x.level, 9))
+        upnl += p.upnl or 0.0
+        actions += sum(1 for x in adv if x.level in ("danger", "warn"))
+        positions.append({"p": p.as_dict(), "advice": adv, "worst": adv[0].level if adv else "ok", "asset": a,
                           "view": v if v and not v.get("error") else None, "trade": open_rows.get(p.coin)})
+    positions.sort(key=lambda x: order.get(str(x["worst"]), 9))
     ms = ((state or {}).get("clearinghouse") or {}).get("marginSummary") or {}
     return {"address": address, "positions": positions, "synced_at": at,
+            "open_pnl": upnl, "actions": actions,
             "account_value": _f(ms.get("accountValue")),
             "withdrawable": _f(((state or {}).get("clearinghouse") or {}).get("withdrawable"))}
 

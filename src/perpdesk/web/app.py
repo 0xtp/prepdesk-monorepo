@@ -68,7 +68,8 @@ def fmt_px(x: Any) -> str:
 def fmt_usd(x: Any, dec: int = 2) -> str:
     if x is None:
         return "–"
-    return f"${float(x):,.{dec}f}"
+    v = float(x)
+    return f"-${-v:,.{dec}f}" if v < 0 and round(v, dec) != 0 else f"${abs(v) if round(v, dec) == 0 else v:,.{dec}f}"
 
 
 def fmt_pct(x: Any, dec: int = 2, signed: bool = True) -> str:

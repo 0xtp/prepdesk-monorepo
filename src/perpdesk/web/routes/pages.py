@@ -13,6 +13,7 @@ from perpdesk.assets.favorites import groups, list_favorites
 from perpdesk.config import RUNTIME_KEYS, get_settings
 from perpdesk.db.models import Asset, BacktestRun, JobHeartbeat, LatestView, SetupStat, SourceHealthRow
 from perpdesk.llm import usage as llm_usage
+from perpdesk.pipeline import leverage_scenarios
 from perpdesk.store import clear_overrides, load_overrides, set_override, settings_for
 from perpdesk.tracking import report
 from perpdesk.web.app import GRADE_ORDER, db, templates
@@ -59,8 +60,11 @@ def asset_page(asset_id: int, request: Request, s: Session = Depends(db)) -> HTM
 
     coin = a.hl_coin or a.symbol
     rec = r_stats(live_rs(s, coin=coin))
+    st = settings_for(s)
+    lev_rows = leverage_scenarios(a, v.payload, st) if v else []
     return templates.TemplateResponse(request, "asset.html", {
-        "a": a, "v": v.payload if v else None, "settings": settings_for(s), "rec": rec.as_dict(), "page": "asset",
+        "a": a, "v": v.payload if v else None, "settings": st, "rec": rec.as_dict(), "page": "asset",
+        "lev_rows": lev_rows,
         "timeframes": ["15m", "1h", "4h", "1d", "1w"],
     })
 

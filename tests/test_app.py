@@ -163,7 +163,8 @@ def test_wallet_tracking_and_live_prices(app_env):
     t = panel.text
     assert "ETH" in t and "No stop-loss order" in t and "$1,000.00" in t
     assert "SOL" in t and "$98.85" in t  # 100 closed PnL - 0.95 exchange fees - 0.20 front-end fees
-    assert "front-end $0.20" in t
+    assert "incl. $0.20 Phantom fee" in t and "What to change" in t and "Price ladder" in t
+    assert "1 thing to fix" in t or "2 things to fix" in t
     assert "@107" not in t  # spot fills ignored
     # second sync is idempotent (no duplicate fills/trades)
     c.post("/api/wallet/sync")
@@ -193,3 +194,30 @@ def test_wallet_tracking_and_live_prices(app_env):
     assert c.get("/api/prices").json() == {}
     home = c.get("/")
     assert "data-live-price" in home.text and "/api/prices" in home.text
+
+
+def test_asset_page_leverage_slider(app_env):
+    c = app_env
+    assert c.get("/api/cron/tick?budget=120", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    from perpdesk.db.models import Asset
+    from perpdesk.db.session import session_scope
+
+    with session_scope() as s:
+        a = s.query(Asset).filter(Asset.hl_coin == "SOL").one()
+        aid, maxlev = a.id, a.max_leverage
+    page = c.get(f"/asset/{aid}").text
+    assert "levSlider(" in page and "Recommended" in page and "built-in method" not in page
+    r = c.post(f"/asset/{aid}/plan", data={"margin": "500", "risk_usd": "", "risk_pct": "8"})
+    assert r.status_code == 200 and "levSlider(" in r.text
+    from perpdesk.pipeline import leverage_scenarios
+    from perpdesk.store import settings_for
+
+    with session_scope() as s:
+        from perpdesk.db.models import LatestView
+
+        a = s.get(Asset, aid)
+        rows = leverage_scenarios(a, s.get(LatestView, aid).payload, settings_for(s), 500)
+    assert rows[-1]["lev"] == maxlev and sum(r["recommended"] for r in rows) == 1
+    rec = next(r for r in rows if r["recommended"])
+    assert rec["mode"] == "plan" and rec["feasible"]
+    assert all(r["mode"] != "plan" or r["risk_usd"] <= rec["risk_usd"] * 1.0001 + 0.01 for r in rows if r["feasible"])

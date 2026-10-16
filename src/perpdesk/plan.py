@@ -134,6 +134,7 @@ class Plan:
     proof: str | None
     live_proof: str | None
     notes: list[str] = field(default_factory=list)
+    costs: Costs | None = None
 
     def copy_text(self) -> str:
         side = self.direction
@@ -560,4 +561,114 @@ def build_plan(a: Analysis, meta: AssetMeta, risk: RiskInputs, cfg: PlanConfig, 
         funding_usd=funding_usd, usd_tp1=usd_tp1, usd_tp2_total=usd_tp2_total, flags=flags, invalidation=invalid,
         entry_note=entry_note, ttl_min=ttl, created_at_ms=created, expires_at_ms=expires, runaway_price=runaway,
         win=st, break_even=be, ev_usd=ev, ev_basis=basis, proof=gate.proof, live_proof=gate.live_proof, notes=notes,
+        costs=c,
     )
+
+
+# ------------------------------------------------------------------ leverage what-if (slider)
+
+
+@dataclass(frozen=True)
+class LevScenario:
+    lev: int
+    feasible: bool
+    level: Literal["ok", "warn", "danger"]
+    mode: Literal["plan", "scaled", "none"]  # plan = the plan's own stop; scaled = stop tightened to keep $ risk
+    messages: tuple[str, ...]
+    notional: float = 0.0
+    qty: float = 0.0
+    sl: float = 0.0
+    tp1: float = 0.0
+    tp2: float = 0.0
+    risk_usd: float = 0.0
+    rr1: float = 0.0
+    usd_tp1: float = 0.0
+    usd_tp2: float = 0.0
+    stop_atr: float = 0.0
+    liq: float | None = None
+    liq_buffer_atr: float | None = None
+    keep_sl_loss: float = 0.0  # what the plan's stop would lose at this leverage
+    keep_sl_liquidated: bool = False  # liquidation comes before the plan's stop at this leverage
+
+
+def leverage_scenario(direction: Direction, entry: float, sl: float, tp1: float, tp2: float, atr: float,
+                      margin: float, risk_budget: float, lev: int, meta: AssetMeta, c: Costs,
+                      min_sl_atr: float, min_liq_buffer_atr: float, plan_notional: float | None = None
+                      ) -> LevScenario:
+    """Fixed margin and a chosen leverage: size = margin × leverage. If the plan's stop would lose more
+    than the risk budget, the stop is tightened until the loss equals the budget and the targets keep
+    the plan's reward-to-risk multiples. Flags stops inside noise and liquidation before the stop.
+    At the plan's own leverage pass `plan_notional` so that row is exactly the plan (it may use less margin)."""
+    dsign = 1 if direction == "LONG" else -1
+    sd, tiers = meta.sz_decimals, meta.margin_tiers
+    notional = margin * lev if plan_notional is None else min(margin * lev, plan_notional)
+    tier_max = tier_for(notional, tiers, meta.max_leverage)
+    if lev > tier_max:
+        return LevScenario(lev, False, "danger", "none",
+                           (f"Hyperliquid allows at most {tier_max}x on a ${notional:,.0f} {meta.coin} position.",))
+    qty = floor_size(notional / entry, sd)
+    notional = qty * entry
+    if notional < HL_MIN_NOTIONAL_USD:
+        return LevScenario(lev, False, "danger", "none",
+                           (f"Size ${notional:,.2f} is below Hyperliquid's ${HL_MIN_NOTIONAL_USD:.0f} minimum.",))
+    liq = liquidation_price(entry, qty, notional / lev, direction, tiers, meta.max_leverage)
+    if liq < entry * 1e-6:
+        liq = 0.0
+    keep_loss = qty * per_unit_loss(entry, sl, c, dsign)
+    keep_liq = dsign * (sl - liq) <= 0
+    msgs: list[str] = []
+    level: Literal["ok", "warn", "danger"] = "ok"
+    keep_msg = (f"Keeping the plan's stop ({fmt_px(sl)}) at {lev}x would lose ${keep_loss:,.2f} = "
+                f"{keep_loss / margin * 100:.0f}% of your margin" + (", and liquidation comes first." if keep_liq else "."))
+    if keep_loss <= risk_budget * 1.0001:
+        mode: Literal["plan", "scaled", "none"] = "plan"
+        s1, t1, t2, risk = sl, tp1, tp2, keep_loss
+        if keep_loss < risk_budget * 0.95:
+            msgs.append(f"The plan's stop and targets, at a smaller size: risk ${keep_loss:,.2f} "
+                        f"(under the ${risk_budget:,.2f} budget).")
+        else:
+            msgs.append("The plan as designed: its stop and targets, sized to your risk budget.")
+    else:
+        mode = "scaled"
+        f = max(0.0, dsign * c.funding_rate_per_hour * c.hold_hours) * entry
+        fx = c.exit_fee_rate + c.slippage_rate
+        d = (risk_budget / qty - entry * (c.entry_fee_rate + fx) - f) / (1 - dsign * fx)
+        if d <= 0:
+            return LevScenario(lev, False, "danger", "none",
+                               (f"At {lev}x the fees alone would use up your ${risk_budget:,.2f} risk budget, so no "
+                                f"stop can keep the loss that small. Lower the leverage.", keep_msg),
+                               notional=notional, qty=qty, liq=liq, keep_sl_loss=keep_loss, keep_sl_liquidated=keep_liq)
+        r0 = abs(entry - sl)
+        spot = not meta.is_perp
+        s1 = round_price(entry - dsign * d, sd, "down" if dsign > 0 else "up", spot=spot)
+        t1 = round_price(entry + dsign * abs(tp1 - entry) / r0 * d, sd, "down" if dsign > 0 else "up", spot=spot)
+        t2 = round_price(entry + dsign * abs(tp2 - entry) / r0 * d, sd, "down" if dsign > 0 else "up", spot=spot)
+        if (entry - s1) * dsign <= 0 or (t1 - entry) * dsign <= 0:
+            return LevScenario(lev, False, "danger", "none",
+                               (f"At {lev}x the stop would have to sit on the entry price. Lower the leverage.", keep_msg),
+                               notional=notional, qty=qty, liq=liq, keep_sl_loss=keep_loss, keep_sl_liquidated=keep_liq)
+        risk = qty * per_unit_loss(entry, s1, c, dsign)
+        level = "warn"
+        msgs.append(f"To keep risk at ${risk_budget:,.2f}, the stop moves to {fmt_px(s1)} and the targets scale to "
+                    f"match. This tighter version was not backtested.")
+        msgs.append(keep_msg)
+    stop_atr = abs(entry - s1) / atr if atr > 0 else 0.0
+    buf = dsign * (s1 - liq) / atr if atr > 0 and liq else None
+    if mode == "scaled" and stop_atr < min_sl_atr:
+        level = "danger"
+        msgs.insert(0, f"The stop is only {stop_atr:.1f} ATR away: inside normal price noise, so it will likely be "
+                       "hit even if the direction is right.")
+    if liq and dsign * (s1 - liq) <= 0:
+        level = "danger"
+        msgs.insert(0, f"Liquidation ({fmt_px(liq)}) comes before the stop ({fmt_px(s1)}).")
+    elif buf is not None and buf < min_liq_buffer_atr:
+        if level == "ok":
+            level = "warn"
+        msgs.append(f"Liquidation ({fmt_px(liq)}) is only {buf:.1f} ATR beyond the stop; a wick or slippage could "
+                    "liquidate you.")
+    half = qty / 2
+    g1 = half * per_unit_gain(entry, t1, c, dsign)
+    return LevScenario(lev, True, level, mode, tuple(msgs), notional=notional, qty=qty, sl=s1, tp1=t1, tp2=t2,
+                       risk_usd=risk, rr1=net_rr(entry, s1, t1, c, dsign), usd_tp1=g1,
+                       usd_tp2=g1 + half * per_unit_gain(entry, t2, c, dsign), stop_atr=stop_atr, liq=liq,
+                       liq_buffer_atr=buf, keep_sl_loss=keep_loss, keep_sl_liquidated=keep_liq)

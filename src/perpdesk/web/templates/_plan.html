@@ -15,6 +15,57 @@
   {% for f in v.flags %}<li>⚠ {{ f.reason }}</li>{% endfor %}
 </ul>{% endif %}
 
+{% if lev_rows %}
+<section class="rounded-xl ring-1 ring-zinc-800 bg-zinc-950/60 p-4 flex flex-col gap-3" x-data="levSlider({{ lev_rows|tojson|forceescape }}, {{ p.leverage }}, '{{ a.symbol }}', '{{ p.direction }}')">
+  <div class="flex items-center gap-3">
+    <div>
+      <div class="text-[11px] uppercase tracking-wide text-zinc-500">Leverage</div>
+      <div class="text-3xl font-semibold tabular-nums" :class="tone.text" x-text="lev + 'x'"></div>
+    </div>
+    <div class="ml-auto text-right">
+      <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ring-1" :class="tone.chip" x-text="badge"></span>
+      <div class="mt-1 text-[11px] text-zinc-500">Recommended {{ p.leverage }}x · isolated</div>
+    </div>
+  </div>
+  <div class="relative pt-1">
+    <input type="range" class="w-full cursor-pointer" :min="min" :max="max" step="1" x-model.number="lev" :style="{accentColor: tone.hex}" aria-label="Leverage">
+    <div class="relative h-4 text-[10px] text-zinc-500 tabular-nums">
+      <span class="absolute left-0" x-text="min + 'x'"></span>
+      <span class="absolute -translate-x-1/2 text-indigo-300 font-semibold" :style="{left: pos(rec) + '%'}" x-text="'▲ ' + rec + 'x'"></span>
+      <span class="absolute right-0" x-text="max + 'x'"></span>
+    </div>
+  </div>
+  <template x-if="!s.feasible">
+    <ul class="flex flex-col gap-1.5 text-xs">
+      <template x-for="m in s.messages"><li class="rounded-md bg-rose-500/10 text-rose-100 px-2.5 py-1.5" x-text="m"></li></template>
+    </ul>
+  </template>
+  <template x-if="s.feasible">
+    <div class="flex flex-col gap-3">
+      <div class="grid grid-cols-3 gap-2 text-center tabular-nums">
+        <div class="rounded-lg bg-rose-500/10 px-2 py-2"><div class="text-[11px] text-rose-300/80">Stop loss</div><div class="text-rose-200 font-semibold" x-text="px(s.sl)"></div><div class="text-[10px] text-zinc-500" x-text="s.stop_atr.toFixed(1) + ' ATR away'"></div></div>
+        <div class="rounded-lg bg-emerald-500/10 px-2 py-2"><div class="text-[11px] text-emerald-300/80">TP1 · 50%</div><div class="text-emerald-200 font-semibold" x-text="px(s.tp1)"></div><div class="text-[10px] text-zinc-500" x-text="'+' + usd(s.usd_tp1)"></div></div>
+        <div class="rounded-lg bg-emerald-500/10 px-2 py-2"><div class="text-[11px] text-emerald-300/80">TP2 · 50%</div><div class="text-emerald-200 font-semibold" x-text="px(s.tp2)"></div><div class="text-[10px] text-zinc-500" x-text="'+' + usd(s.usd_tp2) + ' total'"></div></div>
+      </div>
+      <dl class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs tabular-nums">
+        <div><dt class="text-zinc-500">Size</dt><dd class="text-zinc-200" x-text="usd(s.notional,0) + ' · ' + s.qty + ' ' + sym"></dd></div>
+        <div><dt class="text-zinc-500">Risk if stopped</dt><dd class="text-zinc-200" x-text="usd(s.risk_usd)"></dd></div>
+        <div><dt class="text-zinc-500">R:R to TP1</dt><dd class="text-zinc-200" x-text="s.rr1.toFixed(2)"></dd></div>
+        <div><dt class="text-zinc-500">Liquidation</dt><dd :class="s.liq_buffer_atr !== null && s.liq_buffer_atr < 3 ? 'text-orange-300' : 'text-zinc-200'" x-text="s.liq ? px(s.liq) : 'none'"></dd></div>
+      </dl>
+      <ul class="flex flex-col gap-1.5 text-xs">
+        <template x-for="m in s.messages"><li class="rounded-md px-2.5 py-1.5" :class="tone.msg" x-text="m"></li></template>
+      </ul>
+    </div>
+  </template>
+  <div class="flex flex-wrap gap-2">
+    <button type="button" class="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-800" x-show="lev !== rec" @click="lev = rec">Back to recommended {{ p.leverage }}x</button>
+    <button type="button" class="rounded-md bg-indigo-500 hover:bg-indigo-400 text-white px-3 py-1.5 text-xs disabled:opacity-40" :disabled="!s.feasible" @click="copy()" x-text="copied ? 'Copied ✓' : 'Copy ' + lev + 'x plan'"></button>
+  </div>
+</section>
+{% endif %}
+
+<h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500 -mb-1">Plan details at the recommended {{ p.leverage }}x</h3>
 <div class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm tabular-nums">
   <div class="col-span-2"><div class="text-zinc-500 text-xs">Entry</div>
     <div class="text-zinc-100">{% if p.entry_type == 'limit' %}limit {{ p.zone[0]|px }}–{{ p.zone[1]|px }} <span class="text-zinc-500">or market {{ p.entry_market|px }}</span>{% else %}market {{ p.entry_market|px }} <span class="text-zinc-500">or limit {{ p.zone[0]|px }}–{{ p.zone[1]|px }}</span>{% endif %}</div>
@@ -48,7 +99,7 @@
 {% for n in v.notes %}<p class="text-xs text-zinc-500">· {{ n }}</p>{% endfor %}
 
 <div x-data="{copied:false}" class="flex flex-wrap gap-2">
-  <textarea id="copy-text" class="hidden">{{ p.copy }}</textarea>
+  <textarea id="copy-text" class="hidden">{{ p['copy'] }}</textarea>
   <button class="rounded-md bg-indigo-500 hover:bg-indigo-400 text-white text-sm px-3 py-1.5"
     @click="navigator.clipboard.writeText(document.getElementById('copy-text').value); copied=true; setTimeout(()=>copied=false,1500)" x-text="copied ? 'Copied ✓' : 'Copy plan'"></button>
   <details class="text-sm">
@@ -63,7 +114,7 @@
     </form>
   </details>
 </div>
-<pre class="text-xs text-zinc-400 bg-zinc-950 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{{ p.copy }}</pre>
+<pre class="text-xs text-zinc-400 bg-zinc-950 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{{ p['copy'] }}</pre>
 {% elif v %}
 <p class="text-rose-400 text-sm">Unavailable: {{ v.error }}</p>
 {% else %}<p class="text-zinc-500 text-sm">Not analysed yet.</p>{% endif %}
