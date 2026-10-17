@@ -57,7 +57,7 @@ def db(tmp_path, monkeypatch):
 
 
 def _settings(**kw):
-    base = {"execution_mode": "paper", "auto_coins": ["SOL"], "auto_paper_equity": 500.0}
+    base = {"execution_mode": "paper", "auto_coins": ["SOL"], "auto_paper_equity": 500.0, "lab_bots": []}
     return Settings(**{**base, **kw})
 
 
@@ -118,7 +118,9 @@ async def test_paper_trade_lifecycle_tp2(db, monkeypatch):
     from perpdesk.auto.report import build
 
     rep = build(db, st, now)
-    assert rep["total"] == pytest.approx(t.pnl_usd) and rep["stats"]["n"] == 1 and len(rep["curve"]) == 1
+    bo = next(b for b in rep["bots"] if b["bot"] == "breakout")
+    assert rep["total"] == pytest.approx(t.pnl_usd) and bo["n_closed"] == 1 and len(rep["curve"]) == 1
+    assert bo["total"] == pytest.approx(t.pnl_usd) and bo["win_rate"] == 1.0
 
 
 async def test_no_trade_unless_breakout_long_and_late_signals_skipped(db, monkeypatch):
@@ -193,3 +195,123 @@ async def test_max_positions_and_kill_switch(db, monkeypatch):
     assert t.status == "closed" and t.exit_reason == "killed" and t.exit_px == 102.0 and t.pnl_usd > 0 and out
     assert state.halted(db)["reason"] == "kill switch"
     assert (await engine.run(db, None, None, st, t0 + H4)).halted == "kill switch"
+
+
+# ---------------------------------------------------------------- lab bots (paper)
+
+def _c4h(close_ms_last, closes):
+    n = len(closes)
+    idx = pd.DatetimeIndex(pd.to_datetime([close_ms_last - (n - i) * H4 for i in range(n)], unit="ms", utc=True))
+    c = np.array(closes, float)
+    return pd.DataFrame({"open": c, "high": c * 1.002, "low": c * 0.998, "close": c, "volume": 100.0}, index=idx)
+
+
+async def test_lab_trend_bot_opens_trails_and_closes(db, monkeypatch):
+    from perpdesk.auto import lab_paper
+    from perpdesk.db.models import AutoTrade
+
+    t0 = 1_800_000_000_000 - 1_800_000_000_000 % H4 + 2 * 60_000
+    bar_close = t0 - t0 % H4
+    closes = list(np.linspace(80, 100, 299)) + [104.0]  # long uptrend, then a fresh 55-bar high
+    c4 = _c4h(bar_close, closes)
+    d1 = c4.resample("1D").agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
+
+    async def frames(s, hl, coin, now):
+        return c4, d1
+
+    monkeypatch.setattr(lab_paper, "_frames", frames)
+    st = _settings(lab_bots=["trend_follow"], lab_coins=["SOL"])
+    monkeypatch.setattr(engine, "analyse_asset", None)  # breakout bot has no coins with a signal path here
+    st = st.model_copy(update={"auto_coins": []})
+    r = await engine.run(db, None, None, st, t0)
+    db.commit()
+    assert any("trend_follow SOL LONG" in x for x in r.opened), r
+    t = db.query(AutoTrade).filter(AutoTrade.setup == "trend_follow").one()
+    assert t.exit_model == "trail" and t.trail_mult == 3.0 and t.atr > 0 and t.sl < 104 and t.status == "pending"
+    assert t.risk_usd == pytest.approx(2.5, rel=0.05)
+    # price rises then falls back through the trailing stop
+    path = [104.0, 104.5] + list(np.linspace(104.5, 115, 40)) + list(np.linspace(115, 100, 40))
+    feed = _bars(t0, path)
+
+    async def candles(hl, coin, tf, start, now):
+        return feed
+
+    monkeypatch.setattr(lab_paper, "_candles", candles)
+    r2 = await engine.run(db, None, None, st, t0 + len(path) * 60_000 + 60_000)
+    db.commit()
+    db.refresh(t)
+    assert t.status == "closed" and t.exit_reason == "trail" and t.pnl_usd > 0 and t.best >= 115 * 0.99
+    assert any("trend_follow SOL LONG trail" in x for x in r2.closed)
+    assert state.equity(db, st, bot="trend_follow") == pytest.approx(500 + t.pnl_usd)
+    assert state.equity(db, st, bot="breakout") == 500  # balances are per bot
+
+
+async def test_lab_short_bot_and_per_bot_limits(db, monkeypatch):
+    from perpdesk.auto import lab_paper
+
+    t0 = 1_800_000_000_000 - 1_800_000_000_000 % H4 + 60_000
+    bar_close = t0 - t0 % H4
+    closes = list(np.linspace(140, 100, 599)) + [99.6]
+    c4 = _c4h(bar_close, closes)
+    c4.iloc[-1, c4.columns.get_loc("volume")] = 400.0
+    d1 = c4.resample("1D").agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
+
+    async def frames(s, hl, coin, now):
+        return c4, d1
+
+    monkeypatch.setattr(lab_paper, "_frames", frames)
+    st = _settings(lab_bots=["breakdown_short", "trend_follow"], lab_coins=["SOL"]).model_copy(
+        update={"auto_coins": []})
+    state.halt(db, "test pause", "trend_follow")
+    r = await engine.run(db, None, None, st, t0)
+    assert any(x.startswith("breakdown_short SOL SHORT") for x in r.opened), r
+    assert not any(x.startswith("trend_follow") for x in r.opened) and r.halts == {"trend_follow": "test pause"}
+
+
+async def test_funding_carry_paper_lifecycle(db, monkeypatch):
+    from perpdesk.auto import lab_paper
+    from perpdesk.db.models import AutoTrade
+
+    t0 = 1_800_000_000_000 - 1_800_000_000_000 % 3_600_000 + 60_000
+    hi = pd.Series([0.00004] * 30, index=pd.DatetimeIndex(pd.to_datetime(
+        [t0 - (30 - i) * 3_600_000 for i in range(30)], unit="ms", utc=True)))
+
+    async def funding(hl, coin, start, now):
+        return hi
+
+    class U:
+        ctxs = {"SOL": type("C", (), {"mark_px": 150.0})()}
+
+    async def uni(hl):
+        return U()
+
+    import perpdesk.assets.registry as reg
+
+    monkeypatch.setattr(lab_paper, "_funding", funding)
+    monkeypatch.setattr(reg, "universe", uni)
+    st = _settings(lab_bots=["funding_carry"], lab_coins=["SOL"]).model_copy(update={"auto_coins": []})
+    r = await engine.run(db, None, None, st, t0)
+    db.commit()
+    assert any(x.startswith("funding_carry SOL") for x in r.opened)
+    t = db.query(AutoTrade).filter(AutoTrade.setup == "funding_carry").one()
+    assert t.direction == "CARRY" and t.status == "open" and t.notional == pytest.approx(500 / 4.5)
+    # 20 more hours at high funding, then funding collapses -> exit
+    later = pd.concat([hi, pd.Series([0.00004] * 20 + [0.0] * 30, index=pd.DatetimeIndex(pd.to_datetime(
+        [t0 + i * 3_600_000 for i in range(50)], unit="ms", utc=True)))])
+
+    async def funding2(hl, coin, start, now):
+        return later
+
+    monkeypatch.setattr(lab_paper, "_funding", funding2)
+    r2 = await engine.run(db, None, None, st, t0 + 51 * 3_600_000)
+    db.commit()
+    db.refresh(t)
+    assert t.status == "closed" and t.exit_reason == "funding_low" and r2.closed
+    from perpdesk.lab.strategies import CarryConfig, carry_cost
+
+    assert t.best > 0 and t.pnl_usd == pytest.approx(t.best - carry_cost(CarryConfig()) * t.notional)
+    from perpdesk.auto.report import build
+
+    rep = build(db, st, t0 + 51 * 3_600_000)
+    carry = next(b for b in rep["bots"] if b["bot"] == "funding_carry")
+    assert carry["n_closed"] == 1 and carry["total"] == pytest.approx(t.pnl_usd)

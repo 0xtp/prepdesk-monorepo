@@ -183,7 +183,8 @@ src/perpdesk/
   web/               FastAPI app, routes, Jinja templates, static (Tailwind CSS, vendored JS)
   llm/               optional Claude explanation (numeric guard) + usage ledger
   wallet/            watch-only account sync, trade rebuild from fills, position advice
-  auto/              Phase 2 auto-trader (paper): strategy, sizing, safety state, engine, Auto page data
+  auto/              Phase 2 auto-trader (paper): per-bot state and limits, sizing, engine, Auto page data
+  lab/               strategy lab: rule sets, trade simulators (fixed / trailing / carry), lab backtest
   prices.py          lightweight live prices for the browser poller
   alerts/            optional read-only Telegram
   execution/         Phase 2 interface + NoopExecutor
@@ -194,12 +195,21 @@ The same engine runs live and in the backtest. Indicators are causal, and higher
 
 ## 9. Phase 2 outline
 
-**Paper auto-trading is live on the Auto page.**
-- **Start it:** press "Start paper trading", or set `EXECUTION_MODE=paper`.
-- **What it does:** after each 4h close it checks `AUTO_COINS` for a LONG breakout. On a signal it opens a simulated trade with `AUTO_PAPER_EQUITY` of fake money, scored against live 1m candles by the backtest's rules.
-- **Safety:** a daily loss pause, a max-drawdown halt, max open positions and a kill switch.
-- **Alerts:** Telegram reports opens and closes.
-- **No keys, no orders.** Live execution is not built yet.
+**Paper auto-trading runs on the Auto page as a strategy lab.** Five bots trade side by side, each with its own `AUTO_PAPER_EQUITY` of fake money, its own limits and its own record, ranked on a leaderboard:
+
+| Bot | Side | Idea |
+|---|---|---|
+| Breakout long | LONG | 4h close above the 20-bar high on volume, full analysis agrees |
+| Breakdown short | SHORT | 4h close below the 20-bar low on volume, coin and BTC in daily downtrends |
+| Trend follower | both | fresh 55-bar high/low with the EMA50/200 trend, 3 ATR trailing stop |
+| Range trader | both | Bollinger/RSI extremes only when ADX < 20 |
+| Funding carry | neutral | short perp + long spot while funding is high |
+
+- **Start it:** press "Start paper trading" or set `EXECUTION_MODE=paper`. Choose bots with `LAB_BOTS` and coins with `LAB_COINS`.
+- **Same code as the backtest:** paper trades run the backtest's strategy and simulator code against live Hyperliquid candles.
+- **Safety:** each bot has a daily loss pause and a max-drawdown halt; the kill switch stops every bot.
+- **No keys, no orders.** Live execution is not built.
+- **Backtests:** `perpdesk lab --start 2021-01-01`, or run the `lab-backtest` workflow. It tests every bot on every coin from 2021, re-checks ambiguous exits on 1-minute candles, and reports results by side, year and coin.
 
 The full design is in [`docs/PHASE2.md`](docs/PHASE2.md):
 

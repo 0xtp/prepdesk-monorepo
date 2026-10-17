@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Auto trading · {{ app_name() }}{% endblock %}
 {% macro money(x) -%}<span class="{{ 'text-emerald-400' if x > 0.005 else ('text-rose-400' if x < -0.005 else 'text-zinc-300') }}">{{ ('+' if x > 0.005 else '') ~ (x|usd) }}</span>{%- endmacro %}
+{% macro side(d) -%}<span class="rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide {{ {'LONG':'bg-emerald-500/15 text-emerald-300','SHORT':'bg-rose-500/15 text-rose-300'}.get(d, 'bg-sky-500/15 text-sky-300') }}">{{ d }}</span>{%- endmacro %}
 {% block content %}
 {% set st = r.settings %}
 <div class="flex flex-col gap-5">
@@ -8,40 +9,66 @@
     <div class="mr-auto">
       <h1 class="text-xl font-semibold text-zinc-100 flex items-center gap-2">Auto trading
         <span class="rounded-full px-2.5 py-0.5 text-[11px] font-bold tracking-wide {{ 'bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-500/40' if r.mode == 'paper' else 'bg-zinc-800 text-zinc-400' }}">{{ r.mode|upper }}</span>
-        {% if r.halted or r.day_halted %}<span class="rounded-full px-2.5 py-0.5 text-[11px] font-bold bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/40">HALTED</span>{% endif %}
+        {% if r.halted %}<span class="rounded-full px-2.5 py-0.5 text-[11px] font-bold bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/40">HALTED</span>{% endif %}
       </h1>
-      <p class="text-xs text-zinc-500">4h breakout · LONG only · {{ st.auto_coins|length }} coins · paper money, live prices · no keys, no real orders</p>
+      <p class="text-xs text-zinc-500">{{ r.bots|selectattr('enabled')|list|length }} bots · long and short · ${{ st.auto_paper_equity|int }} paper money each · live prices · no keys, no real orders</p>
     </div>
     <form method="post" action="/auto/mode">
-      {% if r.mode == 'paper' %}<input type="hidden" name="mode" value="signals"><button class="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800">Pause (signals only)</button>
+      {% if r.mode == 'paper' %}<input type="hidden" name="mode" value="signals"><button class="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800">Pause all</button>
       {% else %}<input type="hidden" name="mode" value="paper"><button class="rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white px-3 py-1.5 text-sm">Start paper trading</button>{% endif %}
     </form>
-    {% if r.halted or r.day_halted %}
-    <form method="post" action="/auto/resume" onsubmit="return confirm('Allow new entries again?')"><button class="rounded-lg border border-emerald-600/60 text-emerald-300 px-3 py-1.5 text-sm hover:bg-emerald-500/10">Resume</button></form>
+    {% if r.halted or r.bots|selectattr('halted')|list %}
+    <form method="post" action="/auto/resume" onsubmit="return confirm('Allow new entries again for all bots?')"><button class="rounded-lg border border-emerald-600/60 text-emerald-300 px-3 py-1.5 text-sm hover:bg-emerald-500/10">Resume</button></form>
     {% endif %}
-    <form method="post" action="/auto/kill" onsubmit="return confirm('Kill switch: halt the auto-trader, cancel pending trades and close open ones at the current price?')">
+    <form method="post" action="/auto/kill" onsubmit="return confirm('Kill switch: halt every bot, cancel pending trades and close open ones at the current price?')">
       <button class="rounded-lg bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 text-sm font-semibold">■ Kill switch</button></form>
   </div>
 
   {% if msg %}<div class="rounded-lg bg-zinc-800/70 text-zinc-200 text-sm px-3 py-2">{{ msg }}</div>{% endif %}
-  {% if r.halted %}<div class="rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-200 text-sm px-3 py-2">⛔ Halted: {{ r.halted.reason }} ({{ r.halted.at|ago }}). No new entries until you press Resume. Open trades are still managed.</div>
-  {% elif r.day_halted %}<div class="rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30 text-amber-200 text-sm px-3 py-2">⚠ Daily loss limit ({{ st.auto_daily_loss_pct }}%) reached. New entries resume tomorrow (UTC).</div>{% endif %}
+  {% if r.halted %}<div class="rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-200 text-sm px-3 py-2">⛔ All bots halted: {{ r.halted.reason }} ({{ r.halted.at|ago }}). No new entries until you press Resume.</div>{% endif %}
   {% if r.mode != 'paper' %}<div class="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-4 text-sm text-zinc-300">
-    <b class="text-zinc-100">Paper trading is off.</b> When started, the app checks each coin after every 4h candle closes. On a LONG breakout it opens a simulated trade with ${{ st.auto_paper_equity|int }} of fake money, using real Hyperliquid prices, fees and the same stop/target rules as the backtest. Nothing touches your wallet.
+    <b class="text-zinc-100">Paper trading is off.</b> When started, every bot below trades its own ${{ st.auto_paper_equity|int }} of fake money with real Hyperliquid prices and fees, using the same rules as its backtest. Nothing touches your wallet.
   </div>{% endif %}
 
-  <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
-    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">Paper equity</div><div class="text-lg font-semibold tabular-nums text-zinc-100">{{ r.equity|usd }}</div><div class="text-[11px] text-zinc-500">started {{ r.start|usd(0) }}</div></div>
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">All bots · paper equity</div><div class="text-lg font-semibold tabular-nums text-zinc-100">{{ r.equity|usd }}</div><div class="text-[11px] text-zinc-500">started {{ r.start|usd(0) }}</div></div>
     <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">Total P&L</div><div class="text-lg font-semibold tabular-nums">{{ money(r.total) }}</div><div class="text-[11px] text-zinc-500">{{ r.closed|length }} closed · {{ r.cancelled }} not filled</div></div>
-    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">Today (UTC)</div><div class="text-lg font-semibold tabular-nums">{{ money(r.today) }}</div><div class="text-[11px] text-zinc-500">stop at −{{ st.auto_daily_loss_pct }}%</div></div>
-    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">Drawdown from peak</div><div class="text-lg font-semibold tabular-nums {{ 'text-amber-300' if r.dd_pct > st.auto_max_drawdown_pct/2 else 'text-zinc-100' }}">{{ '%.1f'|format(r.dd_pct) }}%</div><div class="text-[11px] text-zinc-500">halt at {{ st.auto_max_drawdown_pct }}%</div></div>
-    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 col-span-2 lg:col-span-1"><div class="text-[11px] text-zinc-500">Win rate · avg R</div><div class="text-lg font-semibold tabular-nums text-zinc-100">{% if r.stats %}{{ (r.stats.win_rate*100)|round|int }}% · {{ '%+.2f'|format(r.stats.avg_r) }}R{% else %}–{% endif %}</div><div class="text-[11px] text-zinc-500">backtest: about +0.14R</div></div>
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">Today (UTC)</div><div class="text-lg font-semibold tabular-nums">{{ money(r.today) }}</div><div class="text-[11px] text-zinc-500">each bot pauses at −{{ st.auto_daily_loss_pct }}%</div></div>
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">Open trades</div><div class="text-lg font-semibold tabular-nums text-zinc-100">{{ r.active|length }}</div><div class="text-[11px] text-zinc-500">max {{ st.auto_max_positions }} per bot</div></div>
   </div>
+
+  <section class="flex flex-col gap-3">
+    <h2 class="text-sm font-semibold text-zinc-200">Leaderboard</h2>
+    <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+    {% for b in r.bots %}
+      <article class="rounded-2xl border {{ 'border-zinc-800' if b.enabled else 'border-zinc-900 opacity-60' }} bg-zinc-900/60 p-4 flex flex-col gap-3">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold text-zinc-100">{{ loop.index }}. {{ b.label }}</span>
+          <span class="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-zinc-800 text-zinc-300">{{ b.sides }} · {{ b.tf }}</span>
+          {% if not b.enabled %}<span class="rounded px-1.5 py-0.5 text-[10px] bg-zinc-800 text-zinc-500">off</span>
+          {% elif b.halted %}<span class="rounded px-1.5 py-0.5 text-[10px] bg-rose-500/15 text-rose-300" title="{{ b.halted }}">paused</span>{% endif %}
+          <span class="ml-auto text-base font-semibold tabular-nums">{{ money(b.total) }}</span>
+        </div>
+        <dl class="grid grid-cols-4 gap-2 text-[11px] tabular-nums">
+          <div><dt class="text-zinc-500">Balance</dt><dd class="text-zinc-200">{{ b.equity|usd(0) }}</dd></div>
+          <div><dt class="text-zinc-500">Closed</dt><dd class="text-zinc-200">{{ b.n_closed }}{% if b.open %} <span class="text-indigo-300">+{{ b.open }} open</span>{% endif %}</dd></div>
+          <div><dt class="text-zinc-500">Win · avg</dt><dd class="text-zinc-200">{% if b.win_rate is not none %}{{ (b.win_rate*100)|round|int }}%{% if b.avg_r is not none %} · {{ '%+.2f'|format(b.avg_r) }}R{% endif %}{% else %}–{% endif %}</dd></div>
+          <div><dt class="text-zinc-500">Drawdown</dt><dd class="{{ 'text-amber-300' if b.dd_pct > st.auto_max_drawdown_pct/2 else 'text-zinc-200' }}">{{ '%.1f'|format(b.dd_pct) }}%</dd></div>
+        </dl>
+        <div class="rounded-lg bg-zinc-950/60 px-3 py-2 text-[11px] text-zinc-400">
+          {% if b.expect %}<span class="text-zinc-500">Backtest {{ b.expect.period }}:</span> {{ b.expect.text }}
+          {% else %}<span class="text-zinc-500">Backtest 2021–now: running, results will appear here.</span>{% endif %}
+        </div>
+        <details class="text-[11px] text-zinc-500"><summary class="cursor-pointer hover:text-zinc-300">Rules</summary><p class="mt-1 text-zinc-400">{{ b.rule }}</p></details>
+      </article>
+    {% endfor %}
+    </div>
+  </section>
 
   {% if r.curve|length > 1 %}
   {% set ys = r.curve|map(attribute='eq')|list + [r.start] %}{% set lo = ys|min %}{% set hi = ys|max %}{% set rng = (hi - lo) if hi > lo else 1 %}
   <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-    <h2 class="text-sm font-semibold text-zinc-200 mb-2">Paper equity</h2>
+    <h2 class="text-sm font-semibold text-zinc-200 mb-2">All bots, paper equity</h2>
     <svg viewBox="0 0 300 100" class="w-full h-36" preserveAspectRatio="none" role="img" aria-label="Paper equity curve">
       <line x1="0" x2="300" y1="{{ 95 - (r.start - lo)/rng*90 }}" y2="{{ 95 - (r.start - lo)/rng*90 }}" stroke="#3f3f46" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
       <polyline fill="none" stroke="#818cf8" stroke-width="2" vector-effect="non-scaling-stroke" points="0,{{ (95 - (r.start - lo)/rng*90)|round(1) }} {% for p in r.curve %}{{ (loop.index/(r.curve|length)*300)|round(1) }},{{ (95 - (p.eq - lo)/rng*90)|round(1) }} {% endfor %}"/>
@@ -50,27 +77,40 @@
   {% endif %}
 
   <section class="flex flex-col gap-3">
-    <h2 class="text-sm font-semibold text-zinc-200">Open paper trades ({{ r.active|length }}/{{ st.auto_max_positions }})</h2>
-    {% if not r.active %}<div class="rounded-xl border border-dashed border-zinc-800 p-6 text-center text-sm text-zinc-500">{{ 'No open trades. The next check is after the next 4h candle closes (00, 04, 08, 12, 16, 20 UTC).' if r.mode == 'paper' else 'Paper trading is off.' }}</div>{% endif %}
+    <h2 class="text-sm font-semibold text-zinc-200">Open paper trades ({{ r.active|length }})</h2>
+    {% if not r.active %}<div class="rounded-xl border border-dashed border-zinc-800 p-6 text-center text-sm text-zinc-500">{{ 'No open trades. Bots check after every 4h close (00, 04, 08, 12, 16, 20 UTC); funding carry checks hourly.' if r.mode == 'paper' else 'Paper trading is off.' }}</div>{% endif %}
     <div class="grid gap-3 lg:grid-cols-2">
     {% for t in r.active %}
       <article class="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-col gap-3">
-        <div class="flex items-center gap-2">
-          <span class="text-base font-semibold text-zinc-100">{{ t.coin }}</span>
-          <span class="rounded px-1.5 py-0.5 text-[10px] font-bold bg-emerald-500/15 text-emerald-300">LONG</span>
-          <span class="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-zinc-800 text-zinc-300">{{ t.leverage }}x isolated</span>
-          <span class="rounded px-1.5 py-0.5 text-[10px] {{ 'bg-amber-500/15 text-amber-300' if t.status == 'pending' else 'bg-indigo-500/15 text-indigo-300' }}">{{ 'waiting for fill' if t.status == 'pending' else ('TP1 hit · stop at break-even' if t.tp1_hit else 'open') }}</span>
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-base font-semibold text-zinc-100">{{ t.coin }}</span>{{ side(t.direction) }}
+          <span class="rounded px-1.5 py-0.5 text-[10px] bg-zinc-800 text-zinc-400">{{ r.labels.get(t.setup, {}).get('label', t.setup) }}</span>
+          {% if t.exit_model != 'carry' %}<span class="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-zinc-800 text-zinc-300">{{ t.leverage }}x</span>{% endif %}
+          <span class="rounded px-1.5 py-0.5 text-[10px] {{ 'bg-amber-500/15 text-amber-300' if t.status == 'pending' else 'bg-indigo-500/15 text-indigo-300' }}">{{ 'waiting for fill' if t.status == 'pending' else ('TP1 hit · stop at break-even' if t.tp1_hit else ('trailing' if t.exit_model == 'trail' else ('collecting funding' if t.exit_model == 'carry' else 'open'))) }}</span>
           <span class="ml-auto text-xs tabular-nums text-zinc-400">now {% if t.asset_id %}<span data-live-price="{{ t.asset_id }}" class="text-zinc-100">–</span>{% else %}–{% endif %}</span>
         </div>
+        {% if t.exit_model == 'carry' %}
+        <dl class="grid grid-cols-3 gap-2 text-xs tabular-nums text-center">
+          <div class="rounded-lg bg-zinc-950/60 py-1.5"><dt class="text-[10px] text-zinc-500">Hedged size</dt><dd class="text-zinc-100">{{ t.notional|usd(0) }}</dd></div>
+          <div class="rounded-lg bg-emerald-500/10 py-1.5"><dt class="text-[10px] text-emerald-300/80">Funding so far</dt><dd class="text-emerald-200">{{ (t.best or 0)|usd }}</dd></div>
+          <div class="rounded-lg bg-zinc-950/60 py-1.5"><dt class="text-[10px] text-zinc-500">Capital used</dt><dd class="text-zinc-100">{{ t.margin|usd(0) }}</dd></div>
+        </dl>
+        {% else %}
         <dl class="grid grid-cols-4 gap-2 text-xs tabular-nums text-center">
           <div class="rounded-lg bg-zinc-950/60 py-1.5"><dt class="text-[10px] text-zinc-500">{{ 'Filled' if t.fill_px else 'Entry' }}</dt><dd class="text-zinc-100">{{ (t.fill_px or t.entry)|px }}</dd></div>
-          <div class="rounded-lg bg-rose-500/10 py-1.5"><dt class="text-[10px] text-rose-300/80">Stop</dt><dd class="text-rose-200">{{ (t.fill_px if t.tp1_hit else t.sl)|px }}</dd></div>
+          <div class="rounded-lg bg-rose-500/10 py-1.5"><dt class="text-[10px] text-rose-300/80">{{ 'Trailing stop' if t.exit_model == 'trail' else 'Stop' }}</dt><dd class="text-rose-200">{{ (t.fill_px if t.tp1_hit else (t.stop_now or t.sl))|px }}</dd></div>
+          {% if t.exit_model == 'trail' %}
+          <div class="rounded-lg bg-emerald-500/10 py-1.5 col-span-2"><dt class="text-[10px] text-emerald-300/80">Target</dt><dd class="text-emerald-200">none, rides the trend</dd></div>
+          {% else %}
           <div class="rounded-lg bg-emerald-500/10 py-1.5"><dt class="text-[10px] text-emerald-300/80">TP1 {{ '✓' if t.tp1_hit }}</dt><dd class="text-emerald-200">{{ t.tp1|px }}</dd></div>
           <div class="rounded-lg bg-emerald-500/10 py-1.5"><dt class="text-[10px] text-emerald-300/80">TP2</dt><dd class="text-emerald-200">{{ t.tp2|px }}</dd></div>
+          {% endif %}
         </dl>
+        {% endif %}
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-500 tabular-nums">
-          <span>size {{ '%g'|format(t.qty) }} · {{ t.notional|usd(0) }}</span><span>risk {{ t.risk_usd|usd }}</span><span>liq {{ t.liq_price|px if t.liq_price else 'none' }}</span>
-          <span>opened {{ t.created_ms|ms_utc }}</span>{% if t.fill_ms %}<span>time stop {{ (t.fill_ms + t.max_hold_ms)|ms_utc }}</span>{% endif %}
+          {% if t.exit_model != 'carry' %}<span>size {{ '%g'|format(t.qty) }} · {{ t.notional|usd(0) }}</span><span>risk {{ t.risk_usd|usd }}</span><span>liq {{ t.liq_price|px if t.liq_price else 'none' }}</span>{% endif %}
+          <span>opened {{ t.created_ms|ms_utc }}</span>{% if t.fill_ms and t.max_hold_ms %}<span>time stop {{ (t.fill_ms + t.max_hold_ms)|ms_utc }}</span>{% endif %}
+          {% if t.note %}<span class="w-full text-zinc-600">{{ t.note }}</span>{% endif %}
         </div>
       </article>
     {% endfor %}
@@ -82,10 +122,11 @@
     <div class="rounded-2xl border border-zinc-800 bg-zinc-900/60 divide-y divide-zinc-800/80">
       {% for t in r.closed %}
       <div class="grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-1 px-4 py-3 text-xs tabular-nums items-center">
-        <div class="md:col-span-3 flex items-center gap-2"><span class="font-semibold text-zinc-100">{{ t.coin }}</span><span class="text-[11px] text-zinc-500">{{ (t.exit_ms|ms_utc)[5:16] }}</span></div>
+        <div class="md:col-span-3 flex items-center gap-2 flex-wrap"><span class="font-semibold text-zinc-100">{{ t.coin }}</span>{{ side(t.direction) }}<span class="text-[11px] text-zinc-500">{{ (t.exit_ms|ms_utc)[5:16] }}</span></div>
         <div class="md:hidden text-right text-sm font-semibold">{{ money(t.pnl_usd or 0) }}</div>
-        <div class="md:col-span-4 text-zinc-300">{{ t.fill_px|px }} → {{ t.exit_px|px }} <span class="text-zinc-500">· {{ t.leverage }}x · {{ t.notional|usd(0) }}</span></div>
-        <div class="md:col-span-3"><span class="rounded px-1.5 py-0.5 text-[10px] {{ {'tp2':'bg-emerald-500/15 text-emerald-300','sl':'bg-rose-500/15 text-rose-300','be':'bg-zinc-800 text-zinc-300'}.get(t.exit_reason, 'bg-zinc-800 text-zinc-400') }}">{{ {'tp2':'TP2 hit','sl':'stopped','be':'TP1 then break-even','timeout':'48h time stop','killed':'kill switch'}.get(t.exit_reason, t.exit_reason) }}</span> <span class="text-zinc-400">{{ '%+.2f'|format(t.r_multiple) if t.r_multiple is not none }}R</span></div>
+        <div class="md:col-span-2 text-[11px] text-zinc-400">{{ r.labels.get(t.setup, {}).get('label', t.setup) }}</div>
+        <div class="md:col-span-3 text-zinc-300">{% if t.exit_model == 'carry' %}hedged {{ t.notional|usd(0) }}{% else %}{{ t.fill_px|px }} → {{ t.exit_px|px }} <span class="text-zinc-500">· {{ t.leverage }}x</span>{% endif %}</div>
+        <div class="md:col-span-2"><span class="rounded px-1.5 py-0.5 text-[10px] {{ {'tp2':'bg-emerald-500/15 text-emerald-300','trail':'bg-emerald-500/10 text-emerald-300','sl':'bg-rose-500/15 text-rose-300','stop':'bg-rose-500/15 text-rose-300','be':'bg-zinc-800 text-zinc-300'}.get(t.exit_reason, 'bg-zinc-800 text-zinc-400') }}">{{ {'tp2':'TP2 hit','trail':'trailing stop','sl':'stopped','stop':'stopped','be':'TP1 then break-even','timeout':'time stop','killed':'kill switch','funding_low':'funding dropped'}.get(t.exit_reason, t.exit_reason) }}</span> <span class="text-zinc-400">{{ '%+.2f'|format(t.r_multiple) ~ 'R' if t.r_multiple is not none }}</span></div>
         <div class="hidden md:block md:col-span-2 text-right text-sm font-semibold">{{ money(t.pnl_usd or 0) }}</div>
       </div>
       {% else %}<div class="px-4 py-6 text-center text-sm text-zinc-500">No closed paper trades yet.</div>{% endfor %}
@@ -94,15 +135,15 @@
 
   <div class="grid gap-4 lg:grid-cols-2">
     <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-xs text-zinc-400 flex flex-col gap-2">
-      <h2 class="text-sm font-semibold text-zinc-200">Rules</h2>
+      <h2 class="text-sm font-semibold text-zinc-200">Shared rules</h2>
       <ul class="flex flex-col gap-1.5 list-disc pl-4">
-        <li><b class="text-zinc-300">Entry:</b> a 4h candle closes above its {{ st.auto_breakout_lookback }}-bar high on above-average volume and the overall analysis is also LONG. Market entry right after the close (skipped if noticed more than {{ st.auto_max_entry_delay_min }} min late).</li>
-        <li><b class="text-zinc-300">Exit:</b> stop below structure; 50% off at TP1, then stop to break-even; rest at TP2; anything left closes after {{ st.max_hold_hours }}h.</li>
-        <li><b class="text-zinc-300">Size:</b> {{ st.auto_risk_pct }}% of equity lost if stopped; leverage only as needed, max {{ st.auto_max_leverage }}x isolated; liquidation must sit well beyond the stop.</li>
-        <li><b class="text-zinc-300">Limits:</b> max {{ st.auto_max_positions }} positions, one per coin; −{{ st.auto_daily_loss_pct }}% in a day pauses until tomorrow; −{{ st.auto_max_drawdown_pct }}% from peak halts until you resume.</li>
-        <li><b class="text-zinc-300">Coins:</b> {{ st.auto_coins|join(', ') }}. BTC and AVAX are excluded because this setup lost money on them in testing.</li>
+        <li><b class="text-zinc-300">Size:</b> each trade risks {{ st.auto_risk_pct }}% of that bot's balance if stopped; leverage only as needed, max {{ st.auto_max_leverage }}x isolated; liquidation must sit well beyond the stop.</li>
+        <li><b class="text-zinc-300">Limits per bot:</b> max {{ st.auto_max_positions }} positions, one per coin; −{{ st.auto_daily_loss_pct }}% in a day pauses that bot until tomorrow; −{{ st.auto_max_drawdown_pct }}% from its peak pauses it until you resume. The kill switch stops all bots.</li>
+        <li><b class="text-zinc-300">Fills:</b> market entry right after the 4h close (skipped if noticed more than {{ st.auto_max_entry_delay_min }} min late), real fees and slippage; if a stop and a target fall inside the same candle, the stop counts.</li>
+        <li><b class="text-zinc-300">Coins:</b> breakout {{ st.auto_coins|join(', ') }}; other bots {{ st.lab_coins|join(', ') }}.</li>
+        <li><b class="text-zinc-300">Funding carry</b> assumes you can hold spot of the same coin (on Hyperliquid spot or elsewhere).</li>
       </ul>
-      <p class="text-[11px] text-zinc-600">Change these under Settings (AUTO_*). Paper fills use the backtest's conservative rules: if the stop and a target fall inside the same 1-minute candle, the stop counts.</p>
+      <p class="text-[11px] text-zinc-600">Change these under Settings (AUTO_*, LAB_*).</p>
     </section>
     <section class="flex flex-col gap-4">
       <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-xs">
@@ -117,8 +158,9 @@
         <p>{{ lr.at|ago }} · {{ lr.updated }} trade{{ '' if lr.updated == 1 else 's' }} updated</p>
         {% for x in lr.opened %}<p class="text-emerald-300">opened {{ x }}</p>{% endfor %}
         {% for x in lr.closed %}<p class="text-amber-300">closed {{ x }}</p>{% endfor %}
-        {% for x in lr.skipped %}<p class="text-zinc-500">skipped {{ x }}</p>{% endfor %}
-        {% for x in lr.errors %}<p class="text-rose-400">error {{ x }}</p>{% endfor %}
+        {% for b, x in (lr.halts or {}).items() %}<p class="text-rose-300">{{ b }} paused: {{ x }}</p>{% endfor %}
+        {% for x in lr.skipped[:12] %}<p class="text-zinc-500">skipped {{ x }}</p>{% endfor %}
+        {% for x in lr.errors[:12] %}<p class="text-rose-400">error {{ x }}</p>{% endfor %}
         {% else %}<p>Not run yet. It runs with the scheduled tick every 10 minutes while paper mode is on.</p>{% endif %}
       </div>
     </section>

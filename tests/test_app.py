@@ -229,8 +229,10 @@ def test_auto_page_mode_kill_resume(app_env):
     assert p.status_code == 200 and "SIGNALS" in p.text and "Start paper trading" in p.text
     assert c.post("/auto/mode", data={"mode": "live"}, follow_redirects=False).headers["location"].startswith("/auto?msg=Only")
     c.post("/auto/mode", data={"mode": "paper"})
+    assert "saved=1" in c.post("/settings", data={"lab_coins": "SOL,BTC,ETH,HYPE,AVAX", "auto_coins": "SOL,ETH,HYPE"},
+                               follow_redirects=False).headers["location"]
     p = c.get("/auto")
-    assert "PAPER" in p.text and "Pause (signals only)" in p.text
+    assert "PAPER" in p.text and "Pause all" in p.text and "Leaderboard" in p.text and "Trend follower" in p.text
     out = c.get("/api/cron/tick?budget=120", headers={"Authorization": "Bearer s3cret"}).json()
     assert out["auto"]["mode"] == "paper" and not out["auto"]["errors"], out["auto"]
     k = c.post("/auto/kill", follow_redirects=False)
@@ -239,4 +241,6 @@ def test_auto_page_mode_kill_resume(app_env):
     c.post("/auto/resume")
     assert "HALTED" not in c.get("/auto").text
     s = c.get("/settings").text
-    assert 'value="SOL,HYPE,ETH,LINK,SUI,UNI,DOGE,ENA,ONDO,ZEC"' in s
+    assert 'value="SOL,BTC,ETH,HYPE,AVAX"' in s and 'value="breakdown_short,trend_follow,range_revert,funding_carry"' in s
+    bad = c.post("/settings", data={"lab_bots": "trend_follow,moonshot"}, follow_redirects=False)
+    assert "error=" in bad.headers["location"]

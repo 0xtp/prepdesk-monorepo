@@ -51,6 +51,8 @@ RUNTIME_KEYS = (
     "auto_paper_equity",
     "auto_breakout_lookback",
     "auto_max_entry_delay_min",
+    "lab_bots",
+    "lab_coins",
     "llm_credit_usd",
     "llm_monthly_budget_usd",
 )
@@ -178,6 +180,10 @@ class Settings(BaseSettings):
     auto_paper_equity: float = Field(500.0, gt=0)
     auto_breakout_lookback: int = Field(20, ge=5, le=200)
     auto_max_entry_delay_min: int = Field(30, ge=5, le=240)  # skip a signal noticed later than this after the 4h close
+    # Strategy-lab bots paper-traded alongside the breakout bot (each with its own AUTO_PAPER_EQUITY balance).
+    lab_bots: Annotated[list[str], NoDecode] = ["breakdown_short", "trend_follow", "range_revert", "funding_carry"]
+    lab_coins: Annotated[list[str], NoDecode] = ["SOL", "BTC", "ETH", "HYPE", "AVAX", "LINK", "SUI", "UNI", "DOGE",
+                                                 "ENA", "ONDO", "ZEC"]
     execution_enabled: bool = False
     hl_account_address: str = ""
     hl_agent_private_key: str = ""
@@ -216,10 +222,20 @@ class Settings(BaseSettings):
             raise ValueError("WATCH_WALLET must be a 0x… EVM address (42 characters). Never paste a private key.")
         return v.lower()
 
-    @field_validator("auto_coins", mode="before")
+    @field_validator("auto_coins", "lab_coins", mode="before")
     @classmethod
     def _auto_coins(cls, v: Any) -> Any:
         return [x.upper() for x in _csv(v)] if v not in (None, "") else []
+
+    @field_validator("lab_bots", mode="before")
+    @classmethod
+    def _lab_bots(cls, v: Any) -> Any:
+        bots = [x.strip().lower() for x in _csv(v)] if v not in (None, "") else []
+        known = ("breakdown_short", "trend_follow", "range_revert", "funding_carry")
+        bad = [b for b in bots if b not in known]
+        if bad:
+            raise ValueError(f"unknown lab bot(s) {bad}; choose from {known}")
+        return bots
 
     @field_validator("database_url")
     @classmethod

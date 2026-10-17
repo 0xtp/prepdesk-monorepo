@@ -40,11 +40,12 @@ class RunResult:
     closed: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     halted: str | None = None
+    halts: dict[str, str] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {"mode": self.mode, "updated": self.updated, "opened": self.opened, "closed": self.closed,
-                "skipped": self.skipped, "halted": self.halted, "errors": self.errors}
+                "skipped": self.skipped, "halted": self.halted, "halts": self.halts, "errors": self.errors}
 
 
 def spec_of(t: AutoTrade) -> PlanSpec:
@@ -64,7 +65,8 @@ async def _bars(hl: Hyperliquid, coin: str, start: int, now_ms: int) -> pd.DataF
 
 
 async def update_trades(s: Session, hl: Hyperliquid, now_ms: int, res: RunResult) -> None:
-    rows = s.execute(select(AutoTrade).where(AutoTrade.mode == "paper", AutoTrade.status.in_(ACTIVE))).scalars().all()
+    rows = s.execute(select(AutoTrade).where(AutoTrade.mode == "paper", AutoTrade.status.in_(ACTIVE),
+                                             AutoTrade.exit_model == "fixed")).scalars().all()
     for t in rows:
         bars = await _bars(hl, t.coin, t.created_ms - 60_000, now_ms)
         if bars is None:
@@ -81,27 +83,32 @@ async def update_trades(s: Session, hl: Hyperliquid, now_ms: int, res: RunResult
             t.status, t.exit_reason, t.exit_ms, t.exit_px = "closed", out.exit_reason, out.exit_ms, out.exit_price
             t.r_multiple = out.r_multiple
             t.pnl_usd = (out.r_multiple or 0.0) * t.risk_usd
-            res.closed.append(f"{t.coin} {out.exit_reason} {t.pnl_usd:+.2f} USD")
+            res.closed.append(f"{t.setup} {t.coin} {t.direction} {out.exit_reason} {t.pnl_usd:+.2f} USD")
         t.updated_at = utcnow()
 
 
-def check_limits(s: Session, settings: Settings, now_ms: int, res: RunResult) -> bool:
-    """True if new entries are allowed."""
-    eq = state.equity(s, settings)
-    pk = state.peak(s, "paper", eq)
-    if pk > 0 and (pk - eq) / pk * 100 >= settings.auto_max_drawdown_pct and not state.halted(s):
+def check_limits(s: Session, settings: Settings, now_ms: int, res: RunResult, bot: str = STRATEGY) -> bool:
+    """True if this bot may open new trades."""
+    eq = state.equity(s, settings, bot=bot)
+    pk = state.peak(s, "paper", eq, bot)
+    if pk > 0 and (pk - eq) / pk * 100 >= settings.auto_max_drawdown_pct and not state.halted(s, bot):
         state.halt(s, f"max drawdown: equity ${eq:,.2f} is {(pk - eq) / pk * 100:.1f}% below the ${pk:,.2f} peak "
-                      f"(limit {settings.auto_max_drawdown_pct:g}%)")
-    today = state.realized(s, "paper", state.day_start_ms(now_ms))
+                      f"(limit {settings.auto_max_drawdown_pct:g}%)", bot)
+    today = state.realized(s, "paper", state.day_start_ms(now_ms), bot=bot)
     day_eq = eq - today
-    if today < 0 and day_eq > 0 and -today / day_eq * 100 >= settings.auto_daily_loss_pct and not state.day_halted(s, now_ms):
-        state.halt_day(s, now_ms)
-    h = state.halted(s)
+    if (today < 0 and day_eq > 0 and -today / day_eq * 100 >= settings.auto_daily_loss_pct
+            and not state.day_halted(s, now_ms, bot)):
+        state.halt_day(s, now_ms, bot)
+    h = state.halted(s, bot)
+    msg = None
     if h:
-        res.halted = h["reason"]
-        return False
-    if state.day_halted(s, now_ms):
-        res.halted = f"daily loss limit ({settings.auto_daily_loss_pct:g}%) reached; entries resume tomorrow (UTC)"
+        msg = h["reason"]
+    elif state.day_halted(s, now_ms, bot):
+        msg = f"daily loss limit ({settings.auto_daily_loss_pct:g}%) reached; entries resume tomorrow (UTC)"
+    if msg:
+        res.halts[bot] = msg
+        if res.halted is None:
+            res.halted = msg
         return False
     return True
 
@@ -122,10 +129,10 @@ async def open_signals(s: Session, hl: Hyperliquid, ctx: Context, settings: Sett
     bar_close = last_bar_close(now_ms)
     s4h = settings.model_copy(update={"trading_timeframe": AUTO_TF})
     params = {STRATEGY: {"lookback": float(settings.auto_breakout_lookback)}}
-    active = {t.coin for t in s.execute(select(AutoTrade).where(AutoTrade.mode == "paper",
+    active = {t.coin for t in s.execute(select(AutoTrade).where(AutoTrade.mode == "paper", AutoTrade.setup == STRATEGY,
                                                                AutoTrade.status.in_(ACTIVE))).scalars()}
     for coin in settings.auto_coins:
-        if state.last_eval(s, coin) >= bar_close:
+        if state.last_eval(s, coin) >= bar_close:  # key kept as the bare coin for the breakout bot
             continue
         state.set_last_eval(s, coin, bar_close)
         if coin in active:
@@ -151,7 +158,7 @@ async def open_signals(s: Session, hl: Hyperliquid, ctx: Context, settings: Sett
             continue
         pc = plan_config(settings, a.asset_class)
         c = p.costs or Costs(pc.taker_fee_bps / 1e4, pc.taker_fee_bps / 1e4, pc.slippage_bps / 1e4, 0.0, 0.0)
-        eq = state.equity(s, settings)
+        eq = state.equity(s, settings, bot=STRATEGY)
         sz = size_trade(p.direction, p.entry, p.sl, c, eq, settings.auto_risk_pct, settings.auto_max_leverage,
                         meta_of(a), liq_buffer=pc.min_liq_buffer_atr * an.atr)
         if not sz.ok:
@@ -172,13 +179,21 @@ async def open_signals(s: Session, hl: Hyperliquid, ctx: Context, settings: Sett
 
 
 async def run(s: Session, hl: Hyperliquid, ctx: Context, settings: Settings, now_ms: int) -> RunResult:
+    from perpdesk.auto import lab_paper
+
     res = RunResult(settings.execution_mode)
     if settings.execution_mode != "paper":
         return res
     await update_trades(s, hl, now_ms, res)
+    await lab_paper.update(s, hl, now_ms, res)
     s.flush()
-    if check_limits(s, settings, now_ms, res):
+    if check_limits(s, settings, now_ms, res, STRATEGY):
         await open_signals(s, hl, ctx, settings, now_ms, res)
+    directional = [b for b in settings.lab_bots if b != "funding_carry"
+                   and check_limits(s, settings, now_ms, res, b)]
+    await lab_paper.open_directional(s, hl, settings, directional, now_ms, res)
+    if "funding_carry" in settings.lab_bots and check_limits(s, settings, now_ms, res, "funding_carry"):
+        await lab_paper.open_carry(s, hl, settings, now_ms, res)
     kv_set(s, "auto:last_run", {**res.as_dict(), "at": utcnow().isoformat()})
     return res
 
@@ -197,11 +212,18 @@ async def kill(s: Session, hl: Hyperliquid, now_ms: int, reason: str = "kill swi
         t.exit_ms, t.updated_at = now_ms, utcnow()
         if t.status == "pending" or t.fill_px is None:
             t.status, t.exit_reason = "cancelled", "killed"
-            out.append(f"{t.coin} cancelled")
+            out.append(f"{t.setup} {t.coin} cancelled")
+            continue
+        if t.exit_model == "carry":  # hedged: close both legs, keep the funding collected so far
+            from perpdesk.lab.strategies import CarryConfig, carry_cost
+
+            t.status, t.exit_reason = "closed", "killed"
+            t.pnl_usd = (t.best or 0.0) - carry_cost(CarryConfig()) * t.notional
+            out.append(f"{t.setup} {t.coin} closed ({t.pnl_usd:+.2f} USD)")
             continue
         px = marks.get(t.coin)
         if px is None:
-            out.append(f"{t.coin}: no price, left open")
+            out.append(f"{t.setup} {t.coin}: no price, left open")
             continue
         d = 1 if t.direction == "LONG" else -1
         share = 0.5 if t.tp1_hit else 1.0
@@ -212,5 +234,5 @@ async def kill(s: Session, hl: Hyperliquid, now_ms: int, reason: str = "kill swi
         t.status, t.exit_reason, t.exit_px = "closed", "killed", px
         t.pnl_usd = leg + banked
         t.r_multiple = t.pnl_usd / t.risk_usd if t.risk_usd else None
-        out.append(f"{t.coin} closed at {px:g} ({t.pnl_usd:+.2f} USD)")
+        out.append(f"{t.setup} {t.coin} closed at {px:g} ({t.pnl_usd:+.2f} USD)")
     return out

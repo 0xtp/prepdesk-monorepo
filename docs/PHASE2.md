@@ -8,7 +8,17 @@ live: daily loss pause, max-drawdown halt, max positions, kill switch. The live 
 order signing) is not built yet and needs the owner's explicit go-ahead. The app still refuses to start
 if `EXECUTION_ENABLED=true`.
 
-### Implemented strategy (paper)
+### Strategy lab (paper)
+Five bots run in paper mode, each with its own balance, limits and record:
+- breakout long;
+- breakdown short;
+- trend follower (both sides, trailing stop);
+- range trader (both sides);
+- funding carry (market-neutral).
+
+The lab bots share their code with `perpdesk lab`, the 2021-onward backtest. Only a bot that holds up in that backtest and in paper should be considered for live.
+
+### Breakout long (the first paper bot)
 - **Entry:** once per closed 4h bar per coin in `AUTO_COINS`, the normal analysis runs at 4h with breakout
   lookback `AUTO_BREAKOUT_LOOKBACK`. It trades only when the chosen setup is a LONG breakout (the breakout
   fires and agrees with the composite direction), which is the backtest's condition. Market entry; skipped if
