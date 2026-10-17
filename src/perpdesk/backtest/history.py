@@ -58,6 +58,17 @@ class History:
         return out
 
 
+def volume_scale(binance: pd.DataFrame, hl: pd.DataFrame) -> float | None:
+    """Hyperliquid/Binance volume ratio measured on candles both venues have (median of per-candle ratios).
+    Binance trades many times Hyperliquid's volume; without rescaling, 'volume above its average' breaks
+    for weeks after the switch from one source to the other."""
+    both = binance[["volume"]].join(hl[["volume"]], how="inner", lsuffix="_bn", rsuffix="_hl")
+    both = both[(both["volume_bn"] > 0) & (both["volume_hl"] > 0)]
+    if len(both) < 24:
+        return None
+    return float((both["volume_hl"] / both["volume_bn"]).median())
+
+
 def _merge(binance: pd.DataFrame, hl: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     if hl.empty and binance.empty:
         return binance, "none"
@@ -66,9 +77,15 @@ def _merge(binance: pd.DataFrame, hl: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     if binance.empty:
         return hl, f"hyperliquid only from {hl.index[0]:%Y-%m-%d}"
     cut = hl.index[0]
-    out = pd.concat([binance[binance.index < cut], hl]).sort_index()
+    old = binance[binance.index < cut].copy()
+    k = volume_scale(binance, hl)
+    note = ""
+    if k is not None:
+        old["volume"] = old["volume"] * k
+        note = f" (Binance volume ×{k:.3g} to match Hyperliquid)"
+    out = pd.concat([old, hl]).sort_index()
     out = out[~out.index.duplicated(keep="last")]
-    return out, f"binance {binance.index[0]:%Y-%m-%d}→{cut:%Y-%m-%d}, hyperliquid {cut:%Y-%m-%d}→"
+    return out, f"binance {binance.index[0]:%Y-%m-%d}→{cut:%Y-%m-%d}, hyperliquid {cut:%Y-%m-%d}→{note}"
 
 
 async def _hl_candles(hl: Hyperliquid, coin: str, tf: str, start_ms: int, end_ms: int) -> pd.DataFrame:

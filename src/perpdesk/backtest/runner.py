@@ -31,7 +31,7 @@ from perpdesk.analysis.setups import PARAM_GRIDS, SETUPS, SetupContext
 from perpdesk.analysis.types import TF_MS, AssetMeta, MarketSnapshot, SetupSignal
 from perpdesk.plan import Plan, PlanConfig, RiskInputs, build_plan
 from perpdesk.timeutil import index_ms
-from perpdesk.tracking.scorer import PlanSpec, score
+from perpdesk.tracking.scorer import Outcome, PlanSpec, score
 
 LOOKBACK = {"1w": 260, "1d": 420, "4h": 700, "1h": 1500, "15m": 1000}
 MONTH_MS = 30 * 86_400_000
@@ -119,6 +119,11 @@ class CoinRun:
     first_ms: int
     last_ms: int
     trades: list[Trade] = field(default_factory=list)
+    # optional 1-minute candle loader (start_ms, end_ms) used to re-score ambiguous 5-minute exits
+    fine: Callable[[int, int], pd.DataFrame | None] | None = None
+    fine_cache: dict[tuple[int, int], pd.DataFrame | None] = field(default_factory=dict)
+    refined: int = 0  # ambiguous exits re-scored on 1m candles
+    flipped: int = 0  # ...whose result changed
 
 
 def pass1(coin: str, asset_class: str, meta: AssetMeta, frames: dict[str, pd.DataFrame],
@@ -197,6 +202,31 @@ def _spec(p: Plan, t_ms: int, pcfg: PlanConfig, funding: float) -> PlanSpec:
                     slippage=pcfg.slippage_bps / 1e4, funding_per_hour=funding)
 
 
+def refine(run: CoinRun, spec: PlanSpec, coarse: pd.DataFrame, out: Outcome, end_ms: int) -> Outcome:
+    """Re-score a trade whose exit candle touched both the stop and a target, using 1-minute candles up to the
+    end of that candle (5-minute candles after it). Keeps the coarse result if 1-minute data is unavailable."""
+    if run.fine is None or out.exit_ms is None:
+        return out
+    key = (spec.created_ms, out.exit_ms)
+    if key not in run.fine_cache:
+        run.fine_cache[key] = run.fine(spec.created_ms - 60_000, out.exit_ms + 300_000)
+    f = run.fine_cache[key]
+    if f is None or f.empty:
+        return out
+    cut = out.exit_ms + 300_000
+    rest = coarse[index_ms(coarse) >= cut]
+    f = f[index_ms(f) < cut]
+    if f.empty:
+        return out
+    better = score(spec, pd.concat([f, rest]), end_ms)
+    if better.exit_reason == "open":
+        return out
+    run.refined += 1
+    if (better.exit_reason, round(better.r_multiple or 0, 6)) != (out.exit_reason, round(out.r_multiple or 0, 6)):
+        run.flipped += 1
+    return better
+
+
 def simulate(run: CoinRun, setup: str, param_idx: int, pcfg: PlanConfig) -> list[Trade]:
     """One position at a time. setup == 'composite' trades the composite plan on every flat bar."""
     bars = run.bars5
@@ -221,7 +251,10 @@ def simulate(run: CoinRun, setup: str, param_idx: int, pcfg: PlanConfig) -> list
         if hi - lo < 2:
             break  # ran out of 5m data
         sl = bars.iloc[lo:hi]
-        out = score(_spec(plan, rec.t_ms, pcfg, rec.funding), sl, int(t5[hi - 1]) + 300_000)
+        spec = _spec(plan, rec.t_ms, pcfg, rec.funding)
+        out = score(spec, sl, int(t5[hi - 1]) + 300_000)
+        if out.ambiguous and out.exit_ms is not None:
+            out = refine(run, spec, sl, out, int(t5[hi - 1]) + 300_000)
         if out.exit_reason == "open":
             break  # unresolved at the end of the data
         end = out.exit_ms or rec.t_ms

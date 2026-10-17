@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
     inputs:
       coins: { description: "Comma-separated coins", default: "SOL,BTC,ETH,HYPE" }
-      days: { description: "History length in days", default: "730" }
+      days: { description: "History length in days (ignored if start is set)", default: "730" }
+      start: { description: "Start date YYYY-MM-DD (e.g. 2021-01-01); empty = use days", default: "" }
       ablation: { description: "Run factor-group ablation (slower)", type: boolean, default: true }
       timeframe: { description: "Trading timeframe (1h, 4h)", default: "1h" }
       save: { description: "Save results to the app database (off for experiments)", type: boolean, default: true }
@@ -15,7 +16,7 @@ on:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 340
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -32,8 +33,9 @@ jobs:
         run: |
           ABL=""; if [ "${{ github.event.inputs.ablation || 'true' }}" = "true" ]; then ABL="--ablation"; fi
           DB=""; if [ -n "$DATABASE_URL" ] && [ "${{ github.event.inputs.save || 'true' }}" = "true" ]; then DB="--db"; fi
+          START=""; if [ -n "${{ github.event.inputs.start }}" ]; then START="--start ${{ github.event.inputs.start }}"; fi
           .venv/bin/perpdesk backtest --coins "${{ github.event.inputs.coins || 'SOL,BTC,ETH,HYPE' }}" \
-            --days "${{ github.event.inputs.days || '730' }}" $ABL $DB --out reports
+            --days "${{ github.event.inputs.days || '730' }}" $START $ABL $DB --out reports
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: backtest-report, path: reports/ }

@@ -8,6 +8,7 @@ Files are cached on disk (GitHub Actions caches the directory between runs).
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -85,6 +86,27 @@ def load_klines(coin: str, interval: str, start: date, end: date, cache_dir: Pat
     return out[(out.index >= lo) & (out.index < hi)]
 
 
+def load_days(coin: str, interval: str, days: list[date], cache_dir: Path,
+              client: httpx.Client | None = None) -> pd.DataFrame:
+    """Daily archive files for specific days only (used to re-check single trades on 1-minute candles)."""
+    sym = binance_symbol(coin)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    own = client is None
+    c = client or httpx.Client(timeout=60, follow_redirects=True)
+    try:
+        frames = [_fetch(c, cache_dir, f"{ARCHIVE}/daily/klines/{sym}/{interval}/{sym}-{interval}-{d:%Y-%m-%d}.zip")
+                  for d in sorted(set(days))]
+    finally:
+        if own:
+            c.close()
+    frames = [f for f in frames if not f.empty]
+    if not frames:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"],
+                            index=pd.DatetimeIndex([], tz="UTC", name="ts"))
+    out = pd.concat(frames).sort_index()
+    return out[~out.index.duplicated(keep="last")]
+
+
 def _fetch(c: httpx.Client, cache_dir: Path, url: str) -> pd.DataFrame:
     path = cache_dir / url.rsplit("/", 1)[1]
     missing = path.with_suffix(".missing")
@@ -94,9 +116,17 @@ def _fetch(c: httpx.Client, cache_dir: Path, url: str) -> pd.DataFrame:
         return pd.DataFrame()
     r = c.get(url)
     if r.status_code == 404:
-        if "/monthly/" in url:  # symbol not listed in that month; daily files may just not be published yet
+        if "/monthly/" in url or _old_daily(url):  # not listed then; recent daily files may just be unpublished
             missing.write_text("404")
         return pd.DataFrame()
     r.raise_for_status()
     path.write_bytes(r.content)
     return _parse(r.content)
+
+
+def _old_daily(url: str) -> bool:
+    """A daily file older than a few days that 404s will never appear (coin not listed that day)."""
+    m = re.search(r"(\d{4}-\d{2}-\d{2})\.zip$", url)
+    if not m:
+        return False
+    return (datetime.now(UTC).date() - date.fromisoformat(m.group(1))).days > 3

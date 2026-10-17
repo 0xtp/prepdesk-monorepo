@@ -6,12 +6,14 @@ import json
 import math
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from jinja2 import Environment
 
 from perpdesk.analysis.engine import EngineConfig
@@ -22,6 +24,7 @@ from perpdesk.backtest.history import History, load_context_history, load_histor
 from perpdesk.backtest.runner import CoinRun, Trade, ablation, apply_confidence, pass1, score_quantiles, walk_forward
 from perpdesk.config import Settings
 from perpdesk.plan import PlanConfig
+from perpdesk.timeutil import index_ms
 from perpdesk.tracking.calibration import fit
 from perpdesk.tracking.gates import GateConfig, evaluate
 from perpdesk.tracking.stats import r_stats
@@ -34,6 +37,37 @@ def _log(msg: str) -> None:
 def _meta_for(coin: str, hist: History) -> AssetMeta:
     # size/leverage metadata does not affect R outcomes; use permissive values
     return AssetMeta(coin=coin, is_perp=True, sz_decimals=4, max_leverage=20, margin_tiers=[], asset_class="")
+
+
+def minute_loader(coin: str, cache_dir: Path) -> Callable[[int, int], pd.DataFrame | None]:
+    """1-minute Binance candles for a time range (daily archive files, cached on disk)."""
+    from perpdesk.sources.binance_hist import load_days
+
+    def load(start_ms: int, end_ms: int) -> pd.DataFrame | None:
+        days = [d.date() for d in pd.date_range(pd.Timestamp(start_ms, unit="ms", tz="UTC").normalize(),
+                                                pd.Timestamp(end_ms, unit="ms", tz="UTC").normalize(), freq="D")]
+        try:
+            df = load_days(coin, "1m", days, cache_dir / "1m")
+        except Exception as e:
+            _log(f"{coin}: 1m candles unavailable ({type(e).__name__}); keeping the 5m result")
+            return None
+        ms = index_ms(df)
+        return df[(ms >= start_ms) & (ms < end_ms)]
+
+    return load
+
+
+def yearly_lines(trades: list[Trade]) -> list[str]:
+    """Out-of-sample avg R per setup × direction × calendar year: shows bull vs bear behaviour."""
+    by: dict[tuple[str, str, int], list[float]] = defaultdict(list)
+    for t in trades:
+        if t.period != "train" and t.filled and t.r is not None:
+            by[(t.setup, t.direction, datetime.fromtimestamp(t.t_ms / 1000, UTC).year)].append(float(t.r))
+    out = ["OOS + hold-out by year:"]
+    for (setup, d, y), v in sorted(by.items()):
+        out.append(f"  {setup:15s} {d:5s} {y}  n={len(v):4d} avgR={float(np.mean(v)):+.3f} "
+                   f"sumR={float(np.sum(v)):+.1f}")
+    return out
 
 
 def run_backtest(coins: list[str], start: date, end: date, settings: Settings, cache_dir: Path, out_dir: Path,
@@ -71,7 +105,7 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
             _log(f"{coin}: not enough history after warm-up, skipped")
             continue
         runs.append(CoinRun(coin, cls, recs, hist.c5m, hist.sources, time.monotonic() - ts, recs[0].t_ms,
-                            recs[-1].t_ms))
+                            recs[-1].t_ms, fine=minute_loader(coin, cache_dir)))
         _log(f"{coin}: pass 1 done, {len(recs)} bars in {time.monotonic() - ts:.0f}s")
     if not runs:
         raise RuntimeError("no coin had usable history")
@@ -100,6 +134,10 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
             by_period[t.period].append(float(t.r))
     for k, v in sorted(by_period.items()):
         _log(f"  period {k:8s} n={len(v):5d} avgR={float(np.mean(v)):+.3f}")
+    _log(f"ambiguous exits re-checked on 1m candles: {sum(r.refined for r in runs)} "
+         f"(result changed for {sum(r.flipped for r in runs)})")
+    for line in yearly_lines(trades):
+        _log(line)
     abl: dict[str, list[dict[str, Any]]] = {}
     if do_ablation:
         for run in runs:

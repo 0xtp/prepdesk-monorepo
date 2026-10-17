@@ -51,6 +51,9 @@ class Outcome:
     r_multiple: float | None
     mfe_r: float | None
     mae_r: float | None
+    # the exit candle also touched a target: with coarse candles the true order is unknown and the stop was
+    # assumed first. Backtests re-score such trades on 1-minute candles.
+    ambiguous: bool = False
 
     @property
     def resolved(self) -> bool:
@@ -116,6 +119,7 @@ def score(p: PlanSpec, bars: pd.DataFrame, now_ms: int) -> Outcome:
         hit_stop = lo_ <= stop if d > 0 else hi_ >= stop
         hit_tp1 = (hi_ >= p.tp1 if d > 0 else lo_ <= p.tp1) and not tp1_hit
         hit_tp2 = hi_ >= p.tp2 if d > 0 else lo_ <= p.tp2
+        touched_target = hit_tp1 or hit_tp2
         if i == fill_i and p.entry_type == "limit":
             # in the fill candle we cannot know the order of events: only the stop counts
             hit_tp1 = hit_tp2 = False
@@ -123,10 +127,12 @@ def score(p: PlanSpec, bars: pd.DataFrame, now_ms: int) -> Outcome:
         loss = _loss_per_coin(p, fill_px, d, hours)
         if hit_stop:
             if not tp1_hit:
-                return Outcome(True, int(ts[fill_i]), fill_px, False, "sl", int(ts[i]), stop, -1.0, mfe, mae)
+                return Outcome(True, int(ts[fill_i]), fill_px, False, "sl", int(ts[i]), stop, -1.0, mfe, mae,
+                               ambiguous=touched_target)
             leg = _leg(p, fill_px, stop, d, hours, is_stop=True)
             r = (realised + 0.5 * leg) / loss
-            return Outcome(True, int(ts[fill_i]), fill_px, True, "be", int(ts[i]), stop, r, mfe, mae)
+            return Outcome(True, int(ts[fill_i]), fill_px, True, "be", int(ts[i]), stop, r, mfe, mae,
+                           ambiguous=touched_target)
         if hit_tp1:
             tp1_hit = True
             realised = 0.5 * _leg(p, fill_px, p.tp1, d, hours, is_stop=False)
