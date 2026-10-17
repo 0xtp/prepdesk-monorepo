@@ -1,4 +1,9 @@
 {
+  "breakout": {
+    "period": "2021-01 → 2026-10, 12 coins, walk-forward out-of-sample",
+    "verdict": "positive",
+    "text": "Long: 942 trades · win 46% · avg +0.09R · profit factor 1.18, positive in every year 2021–2026. Short: 943 trades · win 47% · avg +0.12R · profit factor 1.27, positive every year (best in the 2022 crash). Still below the +0.15R bar for grade A, and the setup was picked from ~200 tried combinations, so expect less live."
+  },
   "trend_follow": {
     "period": "2021-01 → 2026-10, 12 coins",
     "verdict": "positive",

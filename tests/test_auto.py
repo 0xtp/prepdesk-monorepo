@@ -123,18 +123,23 @@ async def test_paper_trade_lifecycle_tp2(db, monkeypatch):
     assert bo["total"] == pytest.approx(t.pnl_usd) and bo["win_rate"] == 1.0
 
 
-async def test_no_trade_unless_breakout_long_and_late_signals_skipped(db, monkeypatch):
+async def test_only_breakouts_trade_both_sides_and_late_signals_skipped(db, monkeypatch):
     st = _settings()
     t0 = 1_800_000_000_000 - 1_800_000_000_000 % H4
     _fake_signal(monkeypatch, setup="trend_pullback")
     assert not (await engine.run(db, None, None, st, t0 + 60_000)).opened
-    _fake_signal(monkeypatch, direction="SHORT")
-    assert not (await engine.run(db, None, None, st, t0 + H4 + 60_000)).opened
     _fake_signal(monkeypatch)
-    late = await engine.run(db, None, None, st, t0 + 2 * H4 + 45 * 60_000)
+    late = await engine.run(db, None, None, st, t0 + H4 + 45 * 60_000)
     assert not late.opened and "min after the 4h close" in late.skipped[0]
-    sig = await engine.run(db, None, None, _settings(execution_mode="signals"), t0 + 3 * H4 + 60_000)
+    sig = await engine.run(db, None, None, _settings(execution_mode="signals"), t0 + 2 * H4 + 60_000)
     assert sig.mode == "signals" and not sig.opened
+    _fake_signal(monkeypatch, direction="SHORT")
+    short = await engine.run(db, None, None, st, t0 + 3 * H4 + 60_000)
+    assert short.opened and short.opened[0].startswith("breakout SOL SHORT")
+    from perpdesk.db.models import AutoTrade
+
+    t = db.query(AutoTrade).one()
+    assert t.direction == "SHORT" and t.sl > t.entry > t.tp1 > t.tp2
 
 
 async def test_stopped_out_then_limits_halt_new_entries(db, monkeypatch):

@@ -2,8 +2,9 @@
 
 Each run: (1) update open/pending paper trades from live 1m candles with the backtest's scorer;
 (2) check safety limits (daily loss, max drawdown, manual halt); (3) once per closed 4h bar per coin,
-run the normal analysis at 4h and open a paper trade when it is a LONG breakout, which is the exact
-entry condition the backtest measured (breakout fires and agrees with the composite direction).
+run the normal analysis at 4h and open a paper trade when the chosen setup is a breakout (long or short),
+which is the exact entry condition the backtest measured (breakout fires and agrees with the composite
+direction). The 2021-2026 walk-forward backtest was positive for both directions.
 """
 
 from __future__ import annotations
@@ -151,10 +152,10 @@ async def open_signals(s: Session, hl: Hyperliquid, ctx: Context, settings: Sett
             res.errors.append(f"{coin}: {r.error or 'no plan'}")
             continue
         p, an = r.plan, r.analysis
-        if an.setup.name != STRATEGY or p.direction != "LONG":
+        if an.setup.name != STRATEGY:
             continue
         if len(active) >= settings.auto_max_positions:
-            res.skipped.append(f"{coin}: breakout LONG, but {len(active)} positions already open")
+            res.skipped.append(f"{coin}: breakout {p.direction}, but {len(active)} positions already open")
             continue
         pc = plan_config(settings, a.asset_class)
         c = p.costs or Costs(pc.taker_fee_bps / 1e4, pc.taker_fee_bps / 1e4, pc.slippage_bps / 1e4, 0.0, 0.0)
@@ -162,7 +163,7 @@ async def open_signals(s: Session, hl: Hyperliquid, ctx: Context, settings: Sett
         sz = size_trade(p.direction, p.entry, p.sl, c, eq, settings.auto_risk_pct, settings.auto_max_leverage,
                         meta_of(a), liq_buffer=pc.min_liq_buffer_atr * an.atr)
         if not sz.ok:
-            res.skipped.append(f"{coin}: breakout LONG skipped, {sz.reason}")
+            res.skipped.append(f"{coin}: breakout {p.direction} skipped, {sz.reason}")
             continue
         t = AutoTrade(
             mode="paper", coin=coin, asset_id=a.id, setup=STRATEGY, direction=p.direction, status="pending",
@@ -175,7 +176,8 @@ async def open_signals(s: Session, hl: Hyperliquid, ctx: Context, settings: Sett
             note=an.setup.note or "", updated_at=utcnow())
         s.add(t)
         active.add(coin)
-        res.opened.append(f"{coin} LONG {sz.qty:g} @ {p.entry:g} · SL {p.sl:g} · TP1 {p.tp1:g} · {sz.leverage}x")
+        res.opened.append(f"breakout {coin} {p.direction} {sz.qty:g} @ {p.entry:g} · SL {p.sl:g} · TP1 {p.tp1:g} · "
+                          f"{sz.leverage}x")
 
 
 async def run(s: Session, hl: Hyperliquid, ctx: Context, settings: Settings, now_ms: int) -> RunResult:

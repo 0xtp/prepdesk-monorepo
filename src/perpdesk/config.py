@@ -169,9 +169,10 @@ class Settings(BaseSettings):
     # --- Phase 2: auto-trading (paper now; live is not built yet) ---
     # signals = no auto trades; paper = simulated trades against live prices, no keys, no orders.
     execution_mode: Literal["signals", "paper"] = "signals"
-    # Coins where the 4h breakout-long setup tested positive out-of-sample (BTC and AVAX were negative).
-    auto_coins: Annotated[list[str], NoDecode] = ["SOL", "HYPE", "ETH", "LINK", "SUI", "UNI", "DOGE", "ENA", "ONDO",
-                                                  "ZEC"]
+    # Breakout bot coins. The 2021-2026 4h walk-forward was positive pooled across all 12, long and short; no
+    # per-coin cherry-picking (that would fit the noise).
+    auto_coins: Annotated[list[str], NoDecode] = ["SOL", "BTC", "ETH", "HYPE", "AVAX", "LINK", "SUI", "UNI", "DOGE",
+                                                  "ENA", "ONDO", "ZEC"]
     auto_risk_pct: float = Field(0.5, gt=0, le=2)  # % of trading equity lost if a stop is hit
     auto_max_leverage: int = Field(3, ge=1, le=5)
     auto_max_positions: int = Field(3, ge=1, le=10)

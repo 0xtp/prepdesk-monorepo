@@ -10,7 +10,7 @@ if `EXECUTION_ENABLED=true`.
 
 ### Strategy lab (paper)
 Five bots run in paper mode, each with its own balance, limits and record:
-- breakout long;
+- breakout, long and short (positive in every year 2021–2026 in the walk-forward backtest);
 - breakdown short;
 - trend follower (both sides, trailing stop);
 - range trader (both sides);
@@ -18,7 +18,7 @@ Five bots run in paper mode, each with its own balance, limits and record:
 
 The lab bots share their code with `perpdesk lab`, the 2021-onward backtest. Only a bot that holds up in that backtest and in paper should be considered for live.
 
-### Breakout long (the first paper bot)
+### Breakout (the first paper bot)
 - **Entry:** once per closed 4h bar per coin in `AUTO_COINS`, the normal analysis runs at 4h with breakout
   lookback `AUTO_BREAKOUT_LOOKBACK`. It trades only when the chosen setup is a LONG breakout (the breakout
   fires and agrees with the composite direction), which is the backtest's condition. Market entry; skipped if

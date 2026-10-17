@@ -19,9 +19,10 @@ LIVE_MIN_PAPER_DAYS = 5
 LIVE_MIN_PAPER_TRADES = 3
 
 BOT_INFO: dict[str, dict[str, str]] = {
-    "breakout": {"label": "Breakout long", "sides": "LONG", "tf": "4h",
-                 "rule": "4h close above the 20-bar high on volume, with the full analysis also LONG. 50% at TP1, "
-                         "stop to break-even, rest at TP2, 48h max."},
+    "breakout": {"label": "Breakout", "sides": "LONG + SHORT", "tf": "4h",
+                 "rule": "4h close above the 20-bar high (or below the 20-bar low) on volume, with the full analysis "
+                         "agreeing on the direction. Stop beyond structure; 50% at TP1, stop to break-even, rest at "
+                         "TP2, 48h max."},
     "breakdown_short": {"label": "Breakdown short", "sides": "SHORT", "tf": "4h",
                         "rule": "4h close below the 20-bar low on volume while the coin and BTC are in daily "
                                 "downtrends. 50% at 1.5R, stop to break-even, rest at 3R, 48h max."},

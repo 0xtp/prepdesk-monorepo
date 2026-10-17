@@ -199,10 +199,10 @@ The same engine runs live and in the backtest. Indicators are causal, and higher
 
 | Bot | Side | Idea |
 |---|---|---|
-| Breakout long | LONG | 4h close above the 20-bar high on volume, full analysis agrees |
-| Breakdown short | SHORT | 4h close below the 20-bar low on volume, coin and BTC in daily downtrends |
+| Breakout | both | 4h close beyond the 20-bar high/low on volume, full analysis agrees (positive 2021–2026, long and short) |
+| Breakdown short | SHORT | 4h close below the 20-bar low on volume, coin and BTC in daily downtrends (off: lost money) |
 | Trend follower | both | fresh 55-bar high/low with the EMA50/200 trend, 3 ATR trailing stop |
-| Range trader | both | Bollinger/RSI extremes only when ADX < 20 |
+| Range trader | both | Bollinger/RSI extremes only when ADX < 20 (off: lost money) |
 | Funding carry | neutral | short perp + long spot while funding is high |
 
 - **Start it:** press "Start paper trading" or set `EXECUTION_MODE=paper`. Choose bots with `LAB_BOTS` and coins with `LAB_COINS`.
