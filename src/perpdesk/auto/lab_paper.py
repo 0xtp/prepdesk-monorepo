@@ -122,34 +122,46 @@ async def _update_carry(hl: Hyperliquid, t: AutoTrade, now_ms: int, res: Any) ->
 
 
 async def open_directional(s: Session, hl: Hyperliquid, settings: Settings, bots: list[str], now_ms: int,
-                           res: Any) -> None:
-    from perpdesk.auto.engine import _asset, last_bar_close
+                           res: Any, deadline: float | None = None) -> None:
+    from perpdesk.assets.registry import universe
+    from perpdesk.auto.engine import _asset, drift_r, last_bar_close, out_of_time
 
     if not bots:
         return
     bar_close = last_bar_close(now_ms)
     active = {b: _active(s, b) for b in bots}
     btc_d1: pd.DataFrame | None = None
-    for coin in settings.lab_coins:
+    marks: dict[str, float] | None = None
+    coins = [c for c in settings.lab_coins if any(state.last_eval(s, f"{b}:{c}") < bar_close for b in bots)]
+    for k, coin in enumerate(coins):
+        if out_of_time(deadline):
+            res.skipped.append(f"lab bots: time budget used, {len(coins) - k} coins left for the next run")
+            return
         due = [b for b in bots if state.last_eval(s, f"{b}:{coin}") < bar_close]
-        if not due:
-            continue
         for b in due:
             state.set_last_eval(s, f"{b}:{coin}", bar_close)
         late = (now_ms - bar_close) / 60_000
         if late > settings.auto_max_entry_delay_min:
             res.skipped.append(f"{coin}: lab bots checked {late:.0f} min after the 4h close")
+            s.commit()
             continue
         a = await _asset(s, hl, coin)
         if a is None:
             res.errors.append(f"{coin}: not a Hyperliquid perp")
+            s.commit()
             continue
         c4h, d1 = await _frames(s, hl, coin, now_ms)
         if btc_d1 is None:
             btc_d1 = d1 if coin == "BTC" else (await _frames(s, hl, "BTC", now_ms))[1]
         if c4h.empty or int(index_ms(c4h)[-1]) + H4 != bar_close:
             res.errors.append(f"{coin}: latest 4h candle not available yet")
+            s.commit()
             continue
+        if marks is None:
+            try:
+                marks = {kk: v.mark_px for kk, v in (await universe(hl)).ctxs.items()}
+            except Exception:
+                marks = {}
         for b in due:
             strat = STRATEGIES[b]
             row = next(iter(strat.prepare(c4h, d1, btc_d1).iloc[[-1]].itertuples(index=False)))
@@ -159,13 +171,22 @@ async def open_directional(s: Session, hl: Hyperliquid, settings: Settings, bots
                 e = None
             if e is None:
                 continue
+            signal_px = float(getattr(row, "close"))  # noqa: B009
+            px = marks.get(coin, signal_px)
+            moved = drift_r(e.direction, signal_px, px, e.stop)
+            d = 1 if e.direction == "LONG" else -1
+            if moved > settings.auto_max_entry_drift_r or (px - e.stop) * d <= 0:
+                res.skipped.append(f"{b} {coin}: {e.direction} signal, but price moved {moved:+.2f}R since the 4h "
+                                   f"close (limit {settings.auto_max_entry_drift_r:g}R)")
+                continue
             if coin in active[b] or len(active[b]) >= settings.auto_max_positions:
                 res.skipped.append(f"{b} {coin}: {e.direction} signal, but "
                                    + ("already in this coin" if coin in active[b] else "max positions open"))
                 continue
-            t = _open(s, settings, a, b, e, float(getattr(row, "close")), bar_close, now_ms, res)  # noqa: B009
+            t = _open(s, settings, a, b, e, px, bar_close, now_ms, res)
             if t is not None:
                 active[b].add(coin)
+        s.commit()
 
 
 def _open(s: Session, settings: Settings, a: Asset, bot: str, e: Entry, px: float, bar_close: int, now_ms: int,

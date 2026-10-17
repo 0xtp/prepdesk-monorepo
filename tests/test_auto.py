@@ -129,7 +129,7 @@ async def test_only_breakouts_trade_both_sides_and_late_signals_skipped(db, monk
     _fake_signal(monkeypatch, setup="trend_pullback")
     assert not (await engine.run(db, None, None, st, t0 + 60_000)).opened
     _fake_signal(monkeypatch)
-    late = await engine.run(db, None, None, st, t0 + H4 + 45 * 60_000)
+    late = await engine.run(db, None, None, _settings(auto_max_entry_delay_min=30), t0 + H4 + 45 * 60_000)
     assert not late.opened and "min after the 4h close" in late.skipped[0]
     sig = await engine.run(db, None, None, _settings(execution_mode="signals"), t0 + 2 * H4 + 60_000)
     assert sig.mode == "signals" and not sig.opened
@@ -204,6 +204,19 @@ async def test_max_positions_and_kill_switch(db, monkeypatch):
 
 # ---------------------------------------------------------------- lab bots (paper)
 
+def _marks(monkeypatch, **px):
+    """Pin the 'current price' the lab bots see (otherwise a cached Hyperliquid universe could leak in)."""
+    import perpdesk.assets.registry as reg
+
+    class U:
+        ctxs = {k: type("C", (), {"mark_px": v})() for k, v in px.items()}
+
+    async def uni(hl):
+        return U()
+
+    monkeypatch.setattr(reg, "universe", uni)
+
+
 def _c4h(close_ms_last, closes):
     n = len(closes)
     idx = pd.DatetimeIndex(pd.to_datetime([close_ms_last - (n - i) * H4 for i in range(n)], unit="ms", utc=True))
@@ -225,6 +238,7 @@ async def test_lab_trend_bot_opens_trails_and_closes(db, monkeypatch):
         return c4, d1
 
     monkeypatch.setattr(lab_paper, "_frames", frames)
+    _marks(monkeypatch, SOL=104.0)
     st = _settings(lab_bots=["trend_follow"], lab_coins=["SOL"])
     monkeypatch.setattr(engine, "analyse_asset", None)  # breakout bot has no coins with a signal path here
     st = st.model_copy(update={"auto_coins": []})
@@ -265,6 +279,7 @@ async def test_lab_short_bot_and_per_bot_limits(db, monkeypatch):
         return c4, d1
 
     monkeypatch.setattr(lab_paper, "_frames", frames)
+    _marks(monkeypatch, SOL=99.6)
     st = _settings(lab_bots=["breakdown_short", "trend_follow"], lab_coins=["SOL"]).model_copy(
         update={"auto_coins": []})
     state.halt(db, "test pause", "trend_follow")
@@ -320,3 +335,52 @@ async def test_funding_carry_paper_lifecycle(db, monkeypatch):
     rep = build(db, st, t0 + 51 * 3_600_000)
     carry = next(b for b in rep["bots"] if b["bot"] == "funding_carry")
     assert carry["n_closed"] == 1 and carry["total"] == pytest.approx(t.pnl_usd)
+
+
+async def test_late_signal_taken_unless_price_ran_away(db, monkeypatch):
+    from perpdesk.store import save_candles
+
+    plan, _ = _fake_signal(monkeypatch)  # market plan at 100, stop below
+    t0 = 1_800_000_000_000 - 1_800_000_000_000 % H4
+    risk = plan.entry_market - plan.sl
+    # the 4h bar closed at a price 0.5R below today's: price already ran away -> skip
+    save_candles(db, "hl:SOL", "4h", pd.DataFrame({"open": [1.0], "high": [1.0], "low": [1.0],
+                                                   "close": [plan.entry_market - 0.5 * risk], "volume": [1.0]},
+                                                  index=pd.DatetimeIndex(pd.to_datetime([t0 - H4], unit="ms",
+                                                                                        utc=True))))
+    db.commit()
+    r = await engine.run(db, None, None, _settings(), t0 + 150 * 60_000)  # 2.5 h late is fine by itself
+    assert not r.opened and "already moved 1.00R" in r.skipped[0]  # 0.5R move vs a 0.5R stop distance at the signal
+    # next bar: close only 0.1R away -> taken even though it is 3 h late
+    save_candles(db, "hl:SOL", "4h", pd.DataFrame({"open": [1.0], "high": [1.0], "low": [1.0],
+                                                   "close": [plan.entry_market - 0.1 * risk], "volume": [1.0]},
+                                                  index=pd.DatetimeIndex(pd.to_datetime([t0], unit="ms", utc=True))))
+    db.commit()
+    r2 = await engine.run(db, None, None, _settings(), t0 + H4 + 180 * 60_000)
+    assert r2.opened, r2
+
+
+async def test_time_budget_rolls_coins_over_to_next_run(db, monkeypatch):
+    _fake_signal(monkeypatch)
+    t0 = 1_800_000_000_000 - 1_800_000_000_000 % H4 + 60_000
+    r = await engine.run(db, None, None, _settings(), t0, budget_s=0.0)
+    assert not r.opened and any("time budget used" in x for x in r.skipped)
+    r2 = await engine.run(db, None, None, _settings(), t0 + 5 * 60_000, budget_s=30.0)
+    assert r2.opened  # same 4h bar, picked up on the next run
+
+
+async def test_lab_signal_skipped_when_price_ran_away(db, monkeypatch):
+    from perpdesk.auto import lab_paper
+
+    t0 = 1_800_000_000_000 - 1_800_000_000_000 % H4 + 2 * 60_000
+    c4 = _c4h(t0 - t0 % H4, list(np.linspace(80, 100, 299)) + [104.0])
+    d1 = c4.resample("1D").agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
+
+    async def frames(s, hl, coin, now):
+        return c4, d1
+
+    monkeypatch.setattr(lab_paper, "_frames", frames)
+    _marks(monkeypatch, SOL=112.0)  # well beyond the signal close
+    st = _settings(lab_bots=["trend_follow"], lab_coins=["SOL"]).model_copy(update={"auto_coins": []})
+    r = await engine.run(db, None, None, st, t0)
+    assert not r.opened and any("price moved" in x for x in r.skipped), r

@@ -1,6 +1,7 @@
 name: tick
-# Free scheduler for Vercel Hobby (whose own cron runs at most once a day): calls the app's tick
-# endpoint every 10 minutes. Needs repository secrets APP_URL (e.g. https://perpdesk.vercel.app) and
+# Backup scheduler for Vercel Hobby (whose own cron runs at most once a day): calls the auto-trader and
+# the tick endpoint. GitHub runs scheduled workflows best-effort (often hours apart), so use cron-job.org
+# for the real 5-minute schedule (README → Scheduling). Needs repository secrets APP_URL (e.g. https://perpdesk.vercel.app) and
 # CRON_SECRET (same value as in Vercel). GitHub only runs scheduled workflows on the default branch.
 on:
   schedule:
@@ -18,4 +19,6 @@ jobs:
         run: |
           if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then echo "APP_URL / CRON_SECRET secrets not set; skipping"; exit 0; fi
           APP_URL="${APP_URL%/}"
+          curl -fsSL --max-time 90 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/auto?budget=40" || true
+          echo
           curl -fsSL --max-time 90 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/tick?budget=45"

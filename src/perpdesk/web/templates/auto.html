@@ -26,6 +26,10 @@
 
   {% if msg %}<div class="rounded-lg bg-zinc-800/70 text-zinc-200 text-sm px-3 py-2">{{ msg }}</div>{% endif %}
   {% if r.halted %}<div class="rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-200 text-sm px-3 py-2">⛔ All bots halted: {{ r.halted.reason }} ({{ r.halted.at|ago }}). No new entries until you press Resume.</div>{% endif %}
+  {% if r.stale_min is not none %}<div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-500/30 text-amber-100 text-sm px-4 py-3">
+    ⚠ <b>The auto-trader is not being run often enough</b> ({{ 'never run yet' if r.stale_min < 0 else 'last check ' ~ (r.stale_min|round|int) ~ ' min ago' }}). It needs a scheduler that calls
+    <code class="text-amber-200">/api/cron/auto</code> every 5 minutes, or 4h signals are missed. GitHub's free scheduler is not reliable enough; use cron-job.org (free). See README → Scheduling.
+  </div>{% endif %}
   {% if r.mode != 'paper' %}<div class="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-4 text-sm text-zinc-300">
     <b class="text-zinc-100">Paper trading is off.</b> When started, every bot below trades its own ${{ st.auto_paper_equity|int }} of fake money with real Hyperliquid prices and fees, using the same rules as its backtest. Nothing touches your wallet.
   </div>{% endif %}
@@ -139,7 +143,7 @@
       <ul class="flex flex-col gap-1.5 list-disc pl-4">
         <li><b class="text-zinc-300">Size:</b> each trade risks {{ st.auto_risk_pct }}% of that bot's balance if stopped; leverage only as needed, max {{ st.auto_max_leverage }}x isolated; liquidation must sit well beyond the stop.</li>
         <li><b class="text-zinc-300">Limits per bot:</b> max {{ st.auto_max_positions }} positions, one per coin; −{{ st.auto_daily_loss_pct }}% in a day pauses that bot until tomorrow; −{{ st.auto_max_drawdown_pct }}% from its peak pauses it until you resume. The kill switch stops all bots.</li>
-        <li><b class="text-zinc-300">Fills:</b> market entry right after the 4h close (skipped if noticed more than {{ st.auto_max_entry_delay_min }} min late), real fees and slippage; if a stop and a target fall inside the same candle, the stop counts.</li>
+        <li><b class="text-zinc-300">Fills:</b> market entry at the current price after the 4h close. A signal noticed late is still taken, but only while price has not already moved more than {{ st.auto_max_entry_drift_r }}× the stop distance in the trade's direction. Real fees and slippage; if a stop and a target fall inside the same candle, the stop counts.</li>
         <li><b class="text-zinc-300">Coins:</b> breakout {{ st.auto_coins|join(', ') }}; other bots {{ st.lab_coins|join(', ') }}.</li>
         <li><b class="text-zinc-300">Funding carry</b> assumes you can hold spot of the same coin (on Hyperliquid spot or elsewhere).</li>
       </ul>

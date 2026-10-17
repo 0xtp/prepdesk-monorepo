@@ -51,6 +51,7 @@ RUNTIME_KEYS = (
     "auto_paper_equity",
     "auto_breakout_lookback",
     "auto_max_entry_delay_min",
+    "auto_max_entry_drift_r",
     "lab_bots",
     "lab_coins",
     "llm_credit_usd",
@@ -180,7 +181,10 @@ class Settings(BaseSettings):
     auto_max_drawdown_pct: float = Field(10.0, gt=0, le=50)  # halt until manually resumed
     auto_paper_equity: float = Field(500.0, gt=0)
     auto_breakout_lookback: int = Field(20, ge=5, le=200)
-    auto_max_entry_delay_min: int = Field(30, ge=5, le=240)  # skip a signal noticed later than this after the 4h close
+    # A signal is still taken if noticed late (schedulers are irregular), up to one full 4h bar, but only while the
+    # price has not moved more than AUTO_MAX_ENTRY_DRIFT_R × the stop distance in the trade's direction.
+    auto_max_entry_delay_min: int = Field(240, ge=5, le=240)
+    auto_max_entry_drift_r: float = Field(0.3, ge=0, le=2)
     # Strategy-lab bots paper-traded alongside the breakout bot (each with its own AUTO_PAPER_EQUITY balance).
     # Defaults are the bots that were positive in the 2021+ backtest; breakdown_short and range_revert lost money.
     lab_bots: Annotated[list[str], NoDecode] = ["trend_follow", "funding_carry"]

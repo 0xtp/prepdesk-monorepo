@@ -87,6 +87,16 @@ def build(s: Session, settings: Settings, now_ms: int) -> dict[str, Any]:
         if t.setup in enabled:
             run += t.pnl_usd or 0.0
             curve.append({"ms": t.exit_ms, "eq": run})
+    lr = kv_get(s, "auto:last_run")
+    stale_min: float | None = None
+    if settings.execution_mode == "paper":
+        try:
+            from datetime import datetime
+
+            at = datetime.fromisoformat(str((lr or {}).get("at")))
+            stale_min = (now_ms - at.timestamp() * 1000) / 60_000
+        except (TypeError, ValueError):
+            stale_min = -1.0  # never run
     first = min((t.created_ms for t in rows), default=None)
     days = (now_ms - first) / 86_400_000 if first else 0.0
     checks = [
@@ -102,5 +112,6 @@ def build(s: Session, settings: Settings, now_ms: int) -> dict[str, Any]:
         "equity": total_eq, "start": start, "total": total_eq - start,
         "today": sum(b["today"] for b in bots if b["enabled"]), "curve": curve,
         "active": active, "closed": closed[:150], "cancelled": sum(1 for t in rows if t.status == "cancelled"),
-        "last_run": kv_get(s, "auto:last_run"), "checks": checks, "settings": settings,
+        "last_run": lr, "checks": checks, "settings": settings,
+        "stale_min": stale_min if stale_min is not None and (stale_min > 30 or stale_min < 0) else None,
     }

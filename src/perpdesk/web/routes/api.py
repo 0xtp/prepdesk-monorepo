@@ -281,6 +281,16 @@ async def cron_tick(request: Request, s: Session = Depends(db)) -> JSONResponse:
     return JSONResponse(out)
 
 
+@router.api_route("/api/cron/auto", methods=["GET", "POST"])
+async def cron_auto(request: Request, s: Session = Depends(db)) -> JSONResponse:
+    """Auto-trader only (paper). Schedule every 2-5 minutes so 4h signals are acted on promptly."""
+    if not _cron_ok(request, s):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    from perpdesk.jobs.tick import auto_tick
+
+    return JSONResponse(await auto_tick(s, budget_s=float(request.query_params.get("budget", 40))))
+
+
 @router.api_route("/api/cron/daily", methods=["GET", "POST"])
 async def cron_daily(request: Request, s: Session = Depends(db)) -> JSONResponse:
     if not _cron_ok(request, s):

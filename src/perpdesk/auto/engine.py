@@ -9,6 +9,7 @@ direction). The 2021-2026 walk-forward backtest was positive for both directions
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,7 +26,7 @@ from perpdesk.pipeline import Context, analyse_asset, meta_of, plan_config
 from perpdesk.plan import Costs
 from perpdesk.sources.base import guarded
 from perpdesk.sources.hyperliquid import Hyperliquid, closed_only
-from perpdesk.store import kv_set, utcnow
+from perpdesk.store import kv_set, load_candles, utcnow
 from perpdesk.tracking.scorer import PlanSpec, score
 
 AUTO_TF = "4h"
@@ -53,6 +54,18 @@ def spec_of(t: AutoTrade) -> PlanSpec:
     return PlanSpec(direction=t.direction, entry_type=t.entry_type, entry=t.entry, sl=t.sl, tp1=t.tp1, tp2=t.tp2,
                     runaway=t.runaway, created_ms=t.created_ms, expires_ms=t.expires_ms, max_hold_ms=t.max_hold_ms,
                     entry_fee=t.entry_fee, exit_fee=t.exit_fee, slippage=t.slippage, funding_per_hour=t.funding_per_hour)
+
+
+def out_of_time(deadline: float | None) -> bool:
+    return deadline is not None and time.monotonic() > deadline
+
+
+def drift_r(direction: str, signal_px: float, now_px: float, stop: float) -> float:
+    """How far price has already moved in the trade's direction since the signal, in units of the stop distance.
+    Positive = it ran away (a late entry would be worse than the backtest's), negative = it came back."""
+    d = 1 if direction == "LONG" else -1
+    risk = abs(signal_px - stop)
+    return (now_px - signal_px) * d / risk if risk > 0 else 0.0
 
 
 def last_bar_close(now_ms: int, tf: str = AUTO_TF) -> int:
@@ -126,76 +139,100 @@ async def _asset(s: Session, hl: Hyperliquid, coin: str) -> Asset | None:
     return a
 
 
-async def open_signals(s: Session, hl: Hyperliquid, ctx: Context, settings: Settings, now_ms: int, res: RunResult) -> None:
+async def open_signals(s: Session, hl: Hyperliquid, ctx: Context, settings: Settings, now_ms: int, res: RunResult,
+                       deadline: float | None = None) -> None:
     bar_close = last_bar_close(now_ms)
     s4h = settings.model_copy(update={"trading_timeframe": AUTO_TF})
     params = {STRATEGY: {"lookback": float(settings.auto_breakout_lookback)}}
     active = {t.coin for t in s.execute(select(AutoTrade).where(AutoTrade.mode == "paper", AutoTrade.setup == STRATEGY,
                                                                AutoTrade.status.in_(ACTIVE))).scalars()}
-    for coin in settings.auto_coins:
-        if state.last_eval(s, coin) >= bar_close:  # key kept as the bare coin for the breakout bot
-            continue
-        state.set_last_eval(s, coin, bar_close)
+    pending = [c for c in settings.auto_coins if state.last_eval(s, c) < bar_close]
+    for k, coin in enumerate(pending):
+        if out_of_time(deadline):
+            res.skipped.append(f"breakout: time budget used, {len(pending) - k} coins left for the next run")
+            return
+        state.set_last_eval(s, coin, bar_close)  # key kept as the bare coin for the breakout bot
         if coin in active:
+            s.commit()
             continue
         late_min = (now_ms - bar_close) / 60_000
         if late_min > settings.auto_max_entry_delay_min:
             res.skipped.append(f"{coin}: checked {late_min:.0f} min after the 4h close (limit "
                                f"{settings.auto_max_entry_delay_min} min)")
+            s.commit()
             continue
-        a = await _asset(s, hl, coin)
-        if a is None:
-            res.errors.append(f"{coin}: not a Hyperliquid perp")
-            continue
-        r = await analyse_asset(s, hl, a, ctx, s4h, save=False, log=False, setup_params=params)
-        if r.error or r.plan is None or r.analysis is None:
-            res.errors.append(f"{coin}: {r.error or 'no plan'}")
-            continue
-        p, an = r.plan, r.analysis
-        if an.setup.name != STRATEGY:
-            continue
-        if len(active) >= settings.auto_max_positions:
-            res.skipped.append(f"{coin}: breakout {p.direction}, but {len(active)} positions already open")
-            continue
-        pc = plan_config(settings, a.asset_class)
-        c = p.costs or Costs(pc.taker_fee_bps / 1e4, pc.taker_fee_bps / 1e4, pc.slippage_bps / 1e4, 0.0, 0.0)
-        eq = state.equity(s, settings, bot=STRATEGY)
-        sz = size_trade(p.direction, p.entry, p.sl, c, eq, settings.auto_risk_pct, settings.auto_max_leverage,
-                        meta_of(a), liq_buffer=pc.min_liq_buffer_atr * an.atr)
-        if not sz.ok:
-            res.skipped.append(f"{coin}: breakout {p.direction} skipped, {sz.reason}")
-            continue
-        t = AutoTrade(
-            mode="paper", coin=coin, asset_id=a.id, setup=STRATEGY, direction=p.direction, status="pending",
-            signal_ms=bar_close, created_ms=now_ms, entry_type=p.entry_type, entry=p.entry, sl=p.sl, tp1=p.tp1,
-            tp2=p.tp2, runaway=p.runaway_price, expires_ms=now_ms + p.ttl_min * 60_000,
-            max_hold_ms=pc.max_hold_hours * 3_600_000, qty=sz.qty, leverage=sz.leverage, notional=sz.notional,
-            margin=sz.margin, risk_usd=sz.risk_usd, liq_price=sz.liq, entry_fee=c.entry_fee_rate,
-            exit_fee=c.exit_fee_rate, slippage=c.slippage_rate, funding_per_hour=c.funding_rate_per_hour,
-            confidence=p.confidence, client_id=f"paper:{coin}:{bar_close}", tp1_hit=False,
-            note=an.setup.note or "", updated_at=utcnow())
-        s.add(t)
-        active.add(coin)
-        res.opened.append(f"breakout {coin} {p.direction} {sz.qty:g} @ {p.entry:g} · SL {p.sl:g} · TP1 {p.tp1:g} · "
-                          f"{sz.leverage}x")
+        await _breakout_coin(s, hl, ctx, settings, s4h, params, coin, bar_close, now_ms, active, res)
+        s.commit()  # keep progress even if the serverless call is cut off later
 
 
-async def run(s: Session, hl: Hyperliquid, ctx: Context, settings: Settings, now_ms: int) -> RunResult:
+async def _breakout_coin(s: Session, hl: Hyperliquid, ctx: Context, settings: Settings, s4h: Settings,
+                         params: dict[str, dict[str, float]], coin: str, bar_close: int, now_ms: int,
+                         active: set[str], res: RunResult) -> None:
+    a = await _asset(s, hl, coin)
+    if a is None:
+        res.errors.append(f"{coin}: not a Hyperliquid perp")
+        return
+    r = await analyse_asset(s, hl, a, ctx, s4h, save=False, log=False, setup_params=params)
+    if r.error or r.plan is None or r.analysis is None:
+        res.errors.append(f"{coin}: {r.error or 'no plan'}")
+        return
+    p, an = r.plan, r.analysis
+    if an.setup.name != STRATEGY:
+        return
+    bars = load_candles(s, f"hl:{coin}", AUTO_TF, limit=1)
+    if not bars.empty:
+        moved = drift_r(p.direction, float(bars["close"].iloc[-1]), p.entry_market, p.sl)
+        if moved > settings.auto_max_entry_drift_r:
+            res.skipped.append(f"{coin}: breakout {p.direction}, but price already moved {moved:.2f}R since the 4h "
+                               f"close (limit {settings.auto_max_entry_drift_r:g}R)")
+            return
+    if len(active) >= settings.auto_max_positions:
+        res.skipped.append(f"{coin}: breakout {p.direction}, but {len(active)} positions already open")
+        return
+    pc = plan_config(settings, a.asset_class)
+    c = p.costs or Costs(pc.taker_fee_bps / 1e4, pc.taker_fee_bps / 1e4, pc.slippage_bps / 1e4, 0.0, 0.0)
+    eq = state.equity(s, settings, bot=STRATEGY)
+    sz = size_trade(p.direction, p.entry, p.sl, c, eq, settings.auto_risk_pct, settings.auto_max_leverage,
+                    meta_of(a), liq_buffer=pc.min_liq_buffer_atr * an.atr)
+    if not sz.ok:
+        res.skipped.append(f"{coin}: breakout {p.direction} skipped, {sz.reason}")
+        return
+    t = AutoTrade(
+        mode="paper", coin=coin, asset_id=a.id, setup=STRATEGY, direction=p.direction, status="pending",
+        signal_ms=bar_close, created_ms=now_ms, entry_type=p.entry_type, entry=p.entry, sl=p.sl, tp1=p.tp1,
+        tp2=p.tp2, runaway=p.runaway_price, expires_ms=now_ms + p.ttl_min * 60_000,
+        max_hold_ms=pc.max_hold_hours * 3_600_000, qty=sz.qty, leverage=sz.leverage, notional=sz.notional,
+        margin=sz.margin, risk_usd=sz.risk_usd, liq_price=sz.liq, entry_fee=c.entry_fee_rate,
+        exit_fee=c.exit_fee_rate, slippage=c.slippage_rate, funding_per_hour=c.funding_rate_per_hour,
+        confidence=p.confidence, client_id=f"paper:{coin}:{bar_close}", tp1_hit=False,
+        note=an.setup.note or "", updated_at=utcnow())
+    s.add(t)
+    active.add(coin)
+    res.opened.append(f"breakout {coin} {p.direction} {sz.qty:g} @ {p.entry:g} · SL {p.sl:g} · TP1 {p.tp1:g} · "
+                      f"{sz.leverage}x")
+
+
+async def run(s: Session, hl: Hyperliquid, ctx: Context, settings: Settings, now_ms: int,
+              budget_s: float | None = None) -> RunResult:
+    """budget_s: stop starting new coin checks after this many seconds (serverless calls are capped at ~60 s);
+    unchecked coins are picked up by the next run within the same 4h bar."""
     from perpdesk.auto import lab_paper
 
+    deadline = time.monotonic() + budget_s if budget_s is not None else None
     res = RunResult(settings.execution_mode)
     if settings.execution_mode != "paper":
         return res
     await update_trades(s, hl, now_ms, res)
     await lab_paper.update(s, hl, now_ms, res)
-    s.flush()
-    if check_limits(s, settings, now_ms, res, STRATEGY):
-        await open_signals(s, hl, ctx, settings, now_ms, res)
-    directional = [b for b in settings.lab_bots if b != "funding_carry"
-                   and check_limits(s, settings, now_ms, res, b)]
-    await lab_paper.open_directional(s, hl, settings, directional, now_ms, res)
+    s.commit()
     if "funding_carry" in settings.lab_bots and check_limits(s, settings, now_ms, res, "funding_carry"):
         await lab_paper.open_carry(s, hl, settings, now_ms, res)
+        s.commit()
+    if check_limits(s, settings, now_ms, res, STRATEGY):
+        await open_signals(s, hl, ctx, settings, now_ms, res, deadline)
+    directional = [b for b in settings.lab_bots if b != "funding_carry"
+                   and check_limits(s, settings, now_ms, res, b)]
+    await lab_paper.open_directional(s, hl, settings, directional, now_ms, res, deadline)
     kv_set(s, "auto:last_run", {**res.as_dict(), "at": utcnow().isoformat()})
     return res
 

@@ -39,7 +39,8 @@ async def tick(s: Session, budget_s: float = 50.0) -> dict[str, Any]:
         out["wallet"] = await _wallet(s, hl, settings)
         ctx = await load_context(s, hl, settings)
         s.commit()
-        out["auto"] = await _auto(s, hl, ctx, settings)
+        # the auto-trader gets at most ~40% of the call; unchecked coins roll over to the next run
+        out["auto"] = await _auto(s, hl, ctx, settings, budget_s=max(5.0, budget_s * 0.4 - (time.monotonic() - t0)))
         favs = list_favorites(s)
         hb = s.get(JobHeartbeat, "tick")
         cursor = hb.cursor if hb else 0
@@ -91,13 +92,14 @@ async def _wallet(s: Session, hl: Hyperliquid, settings: Settings) -> dict[str, 
     return {"new_fills": res.new_fills, "opened": res.opened, "closed": res.closed, "error": res.error}
 
 
-async def _auto(s: Session, hl: Hyperliquid, ctx: Any, settings: Settings) -> dict[str, Any] | None:
+async def _auto(s: Session, hl: Hyperliquid, ctx: Any, settings: Settings,
+                budget_s: float | None = None) -> dict[str, Any] | None:
     if settings.execution_mode == "signals":
         return None
     from perpdesk.auto.engine import run
 
     try:
-        res = await run(s, hl, ctx, settings, now_ms())
+        res = await run(s, hl, ctx, settings, now_ms(), budget_s=budget_s)
         s.commit()
     except Exception as e:  # the auto-trader must never break signal generation
         s.rollback()
@@ -109,6 +111,23 @@ async def _auto(s: Session, hl: Hyperliquid, ctx: Any, settings: Settings) -> di
         except Exception:
             pass
     return res.as_dict()
+
+
+async def auto_tick(s: Session, budget_s: float = 40.0) -> dict[str, Any]:
+    """Auto-trader only (paper): cheap enough to schedule every 2-5 minutes, independent of the dashboard tick."""
+    t0 = time.monotonic()
+    settings = settings_for(s)
+    hl = Hyperliquid(settings.hyperliquid_api_url, settings.hl_rate_budget_per_min)
+    if settings.execution_mode == "signals":
+        return {"mode": "signals", "note": "paper trading is off (Auto page → Start paper trading)"}
+    ctx = await load_context(s, hl, settings)
+    s.commit()
+    out = await _auto(s, hl, ctx, settings, budget_s=max(5.0, budget_s - (time.monotonic() - t0)))
+    persist_health(s)
+    heartbeat(s, "auto", bool(out) and not (out or {}).get("error"), int((time.monotonic() - t0) * 1000),
+              str({k: (len(v) if isinstance(v, list) else v) for k, v in (out or {}).items()})[:500])
+    s.commit()
+    return {"auto": out, "ms": int((time.monotonic() - t0) * 1000)}
 
 
 async def daily(s: Session) -> dict[str, Any]:

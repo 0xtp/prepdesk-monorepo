@@ -54,13 +54,26 @@ Health check: `GET /healthz` returns the DB status and the age of the last sched
 - the statistical gates and calibration would never get enough live data;
 - Telegram alerts could not fire.
 
-Vercel's own cron runs **at most once a day on the Hobby plan**. That is used for the daily maintenance job only (`vercel.json`). For the 10-minute **tick**, pick one:
+Vercel's own cron runs **at most once a day on the Hobby plan**, so it is used only for the daily maintenance job (`vercel.json`). Two endpoints need an outside scheduler:
 
-| Option | Cost | Setup |
+| Endpoint | How often | What it does |
 |---|---|---|
-| **GitHub Actions** (included: `.github/workflows/tick.yml`) | free | Repo → Settings → Secrets and variables → Actions → add `APP_URL` (your Vercel URL) and `CRON_SECRET` (same value as in Vercel). It runs every 10 minutes from the default branch; GitHub may delay runs by a few minutes. |
-| Vercel Pro | $20/month | Add `{"path": "/api/cron/tick", "schedule": "*/5 * * * *"}` to `crons` in `vercel.json`. Vercel sends the `CRON_SECRET` automatically. |
-| Any free pinger (cron-job.org etc.) | free | `GET https://<app>/api/cron/tick` with header `Authorization: Bearer <CRON_SECRET>` every 5–10 min. |
+| `/api/cron/auto` | **every 5 min** | paper auto-trader: checks each 4h close and manages open paper trades |
+| `/api/cron/tick` | every 10–15 min | dashboard analysis, plan logging and scoring, wallet sync (also runs the auto-trader if time allows) |
+
+Both need the header `Authorization: Bearer <CRON_SECRET>`.
+
+**Recommended: cron-job.org (free, reliable to the minute).**
+1. Sign up at cron-job.org and choose *Create cronjob*.
+2. Fill in the job:
+   - URL: `https://<your-app>.vercel.app/api/cron/auto`
+   - Schedule: every 5 minutes
+   - *Advanced* → Headers: add `Authorization` = `Bearer <your CRON_SECRET>` (the same value as in Vercel)
+   - Request timeout: 60 s
+3. Create a second job for `/api/cron/tick`, every 10 minutes, with the same header.
+4. Check that the Auto page shows "Last check: a few minutes ago".
+
+**GitHub Actions** (`.github/workflows/tick.yml`) also calls both endpoints. It is free, but GitHub only schedules jobs on a best-effort basis: in practice this repo's job ran every 2–4 hours. Keep it only as a backup. Vercel Pro ($20/month) can run `*/5` crons itself.
 
 Irregular ticks are fine. The scorer re-reads Hyperliquid's 1-minute candles (about 3.5 days are kept) from each plan's creation time, so a late tick loses no accuracy.
 

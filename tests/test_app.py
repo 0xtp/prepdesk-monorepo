@@ -228,6 +228,8 @@ def test_auto_page_mode_kill_resume(app_env):
     p = c.get("/auto")
     assert p.status_code == 200 and "SIGNALS" in p.text and "Start paper trading" in p.text
     assert c.post("/auto/mode", data={"mode": "live"}, follow_redirects=False).headers["location"].startswith("/auto?msg=Only")
+    assert c.get("/api/cron/auto").status_code == 401
+    assert c.get("/api/cron/auto", headers={"Authorization": "Bearer s3cret"}).json()["mode"] == "signals"
     c.post("/auto/mode", data={"mode": "paper"})
     assert "saved=1" in c.post("/settings", data={"lab_coins": "SOL,BTC,ETH,HYPE,AVAX", "auto_coins": "SOL,ETH,HYPE"},
                                follow_redirects=False).headers["location"]
@@ -235,6 +237,8 @@ def test_auto_page_mode_kill_resume(app_env):
     assert "PAPER" in p.text and "Pause all" in p.text and "Leaderboard" in p.text and "Trend follower" in p.text
     out = c.get("/api/cron/tick?budget=120", headers={"Authorization": "Bearer s3cret"}).json()
     assert out["auto"]["mode"] == "paper" and not out["auto"]["errors"], out["auto"]
+    a = c.get("/api/cron/auto", headers={"Authorization": "Bearer s3cret"}).json()
+    assert a["auto"]["mode"] == "paper" and not a["auto"]["errors"], a
     k = c.post("/auto/kill", follow_redirects=False)
     assert k.status_code == 303 and "Kill%20switch" in k.headers["location"]
     assert "HALTED" in c.get("/auto").text
