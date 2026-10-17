@@ -241,6 +241,6 @@ def test_auto_page_mode_kill_resume(app_env):
     c.post("/auto/resume")
     assert "HALTED" not in c.get("/auto").text
     s = c.get("/settings").text
-    assert 'value="SOL,BTC,ETH,HYPE,AVAX"' in s and 'value="breakdown_short,trend_follow,range_revert,funding_carry"' in s
+    assert 'value="SOL,BTC,ETH,HYPE,AVAX"' in s and 'value="trend_follow,funding_carry"' in s
     bad = c.post("/settings", data={"lab_bots": "trend_follow,moonshot"}, follow_redirects=False)
     assert "error=" in bad.headers["location"]

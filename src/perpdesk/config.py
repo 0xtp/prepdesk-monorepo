@@ -181,7 +181,8 @@ class Settings(BaseSettings):
     auto_breakout_lookback: int = Field(20, ge=5, le=200)
     auto_max_entry_delay_min: int = Field(30, ge=5, le=240)  # skip a signal noticed later than this after the 4h close
     # Strategy-lab bots paper-traded alongside the breakout bot (each with its own AUTO_PAPER_EQUITY balance).
-    lab_bots: Annotated[list[str], NoDecode] = ["breakdown_short", "trend_follow", "range_revert", "funding_carry"]
+    # Defaults are the bots that were positive in the 2021+ backtest; breakdown_short and range_revert lost money.
+    lab_bots: Annotated[list[str], NoDecode] = ["trend_follow", "funding_carry"]
     lab_coins: Annotated[list[str], NoDecode] = ["SOL", "BTC", "ETH", "HYPE", "AVAX", "LINK", "SUI", "UNI", "DOGE",
                                                  "ENA", "ONDO", "ZEC"]
     execution_enabled: bool = False

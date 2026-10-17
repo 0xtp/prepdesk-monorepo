@@ -1,1 +1,22 @@
-{}
+{
+  "trend_follow": {
+    "period": "2021-01 → 2026-10, 12 coins",
+    "verdict": "positive",
+    "text": "1,596 trades · win 40% · avg +0.06R · profit factor 1.15 · worst drawdown 28R. Shorts carried it (+0.14R avg, positive 2022–2025); longs about break-even. About +9%/yr at 0.5% risk per trade, before running several coins at once."
+  },
+  "funding_carry": {
+    "period": "2023-05 → 2026-10 (Hyperliquid funding history), 12 coins",
+    "verdict": "positive",
+    "text": "Positive on all 12 coins. About 11–25%/yr while a position is open, roughly 4–8%/yr on the capital overall (it is only in a trade part of the time). Worst single trade −0.45%. Assumes you can hold the coin as spot."
+  },
+  "breakdown_short": {
+    "period": "2021-01 → 2026-10, 12 coins",
+    "verdict": "negative",
+    "text": "907 trades · win 44% · avg −0.02R · profit factor 0.96: no edge after fees. Made money only in 2022 and 2024. Off by default."
+  },
+  "range_revert": {
+    "period": "2021-01 → 2026-10, 12 coins",
+    "verdict": "negative",
+    "text": "438 trades · win 35% · avg −0.17R · profit factor 0.71: lost money, longs and shorts, in most years. Off by default."
+  }
+}

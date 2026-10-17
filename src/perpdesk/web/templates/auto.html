@@ -56,7 +56,7 @@
           <div><dt class="text-zinc-500">Drawdown</dt><dd class="{{ 'text-amber-300' if b.dd_pct > st.auto_max_drawdown_pct/2 else 'text-zinc-200' }}">{{ '%.1f'|format(b.dd_pct) }}%</dd></div>
         </dl>
         <div class="rounded-lg bg-zinc-950/60 px-3 py-2 text-[11px] text-zinc-400">
-          {% if b.expect %}<span class="text-zinc-500">Backtest {{ b.expect.period }}:</span> {{ b.expect.text }}
+          {% if b.expect %}<span class="font-semibold {{ 'text-emerald-400' if b.expect.verdict == 'positive' else ('text-rose-400' if b.expect.verdict == 'negative' else 'text-zinc-400') }}">{{ {'positive':'✓ Profitable in backtest','negative':'✗ Lost money in backtest'}.get(b.expect.verdict, 'Backtest') }}</span> <span class="text-zinc-500">· {{ b.expect.period }}</span><br>{{ b.expect.text }}
           {% else %}<span class="text-zinc-500">Backtest 2021–now: running, results will appear here.</span>{% endif %}
         </div>
         <details class="text-[11px] text-zinc-500"><summary class="cursor-pointer hover:text-zinc-300">Rules</summary><p class="mt-1 text-zinc-400">{{ b.rule }}</p></details>
