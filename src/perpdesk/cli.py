@@ -46,6 +46,15 @@ def _daily(args: argparse.Namespace) -> int:
     return 0
 
 
+def _lab(args: argparse.Namespace) -> int:
+    from perpdesk.lab.backtest import run_lab
+
+    end = date.fromisoformat(args.end) if args.end else datetime.now(UTC).date()
+    run_lab([c.strip() for c in args.coins.split(",") if c.strip()], date.fromisoformat(args.start), end,
+            Path(args.cache), Path(args.out))
+    return 0
+
+
 def _backtest(args: argparse.Namespace) -> int:
     from perpdesk.backtest.main import run_backtest
     from perpdesk.config import get_settings
@@ -162,6 +171,13 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--ablation", action="store_true")
     b.add_argument("--db", action="store_true", help="write results to DATABASE_URL")
     b.set_defaults(fn=_backtest)
+    lb = sub.add_parser("lab", help="strategy-lab backtest (all lab bots, fixed settings)")
+    lb.add_argument("--coins", default="SOL,BTC,ETH,HYPE,AVAX,LINK,SUI,UNI,DOGE,ENA,ONDO,ZEC")
+    lb.add_argument("--start", default="2021-01-01")
+    lb.add_argument("--end")
+    lb.add_argument("--cache", default=".cache/binance")
+    lb.add_argument("--out", default="reports")
+    lb.set_defaults(fn=_lab)
     v = sub.add_parser("verify", help="live proof run against the real APIs")
     v.add_argument("--coins", default="BTC,ETH,SOL,HYPE")
     v.add_argument("--spot", default="", help="a contract address to check the spot-only path")

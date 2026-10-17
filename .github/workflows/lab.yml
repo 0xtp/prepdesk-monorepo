@@ -1,0 +1,29 @@
+name: lab-backtest
+# Strategy-lab backtest: every lab bot on every coin since `start` (Binance archive + Hyperliquid history).
+# Results are printed to the log and uploaded as lab_summary.json / lab_trades.json. Nothing is written to the DB.
+on:
+  workflow_dispatch:
+    inputs:
+      coins: { description: "Comma-separated coins", default: "SOL,BTC,ETH,HYPE,AVAX,LINK,SUI,UNI,DOGE,ENA,ONDO,ZEC" }
+      start: { description: "Start date YYYY-MM-DD", default: "2021-01-01" }
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv -p 3.12 && uv pip install -e .
+      - uses: actions/cache@v4
+        with:
+          path: .cache/binance
+          key: binance-lab-${{ github.run_id }}
+          restore-keys: |
+            binance-lab-
+            binance-
+      - name: run lab backtest
+        run: |
+          .venv/bin/perpdesk lab --coins "${{ github.event.inputs.coins }}" --start "${{ github.event.inputs.start }}" --out reports
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: lab-report, path: reports/ }
