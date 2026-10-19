@@ -365,6 +365,14 @@ async def analyse_asset(s: Session, hl: Hyperliquid, a: Asset, ctx: Context, set
         warnings = service.live_warnings(s, settings, snap.coin, an.confidence)
         view = build_view(a, an, plan, settings, status, change24, cur_funding, hint, warnings, frames)
         if log:
+            # close out this coin's earlier plans first (they are otherwise only scored by the scheduled tick),
+            # so the "one active plan per coin" rule cannot silently block recording the signal shown now
+            from perpdesk.tracking.live import score_open_plans
+
+            try:
+                await score_open_plans(s, hl, now_ms(), coin=snap.coin)
+            except Exception as e:  # scoring must never break the analysis itself
+                status["plan scoring"] = {"ok": False, "at": utcnow().isoformat(), "error": str(e)[:200]}
             maybe_log_plan(s, a, plan, an, settings)
         if save:
             _save_view(s, a, view, None)
@@ -377,12 +385,29 @@ async def analyse_asset(s: Session, hl: Hyperliquid, a: Asset, ctx: Context, set
         return AssetResult(a, None, None, view, view["error"])
 
 
+SIGNAL_HISTORY = 60  # card states kept per coin, used to match your real trades to what the card showed
+
+
 def _save_view(s: Session, a: Asset, view: dict[str, Any], error: str | None) -> None:
     row = s.get(LatestView, a.id)
     if row is None:
         s.add(LatestView(asset_id=a.id, payload=view, error=error, updated_at=utcnow()))
     else:
         row.payload, row.error, row.updated_at = view, error, utcnow()
+    if error is None and view.get("plan") and a.hl_coin:
+        record_signal(s, a.hl_coin, view)
+
+
+def record_signal(s: Session, coin: str, view: dict[str, Any]) -> None:
+    from perpdesk.store import kv_get, kv_set
+
+    p = view["plan"]
+    key = f"signals:{coin}"
+    hist = list(kv_get(s, key) or [])
+    hist.append({"ms": now_ms(), "direction": view.get("direction"), "grade": view.get("grade"),
+                 "setup": view.get("setup"), "confidence": view.get("confidence"), "take": bool(view.get("take")),
+                 "entry": p.get("entry"), "sl": p.get("sl"), "tp1": p.get("tp1")})
+    kv_set(s, key, hist[-SIGNAL_HISTORY:])
 
 
 def asset_header(a: Asset) -> dict[str, Any]:

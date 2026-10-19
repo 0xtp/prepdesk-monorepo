@@ -60,6 +60,13 @@ def match_plan(s: Session, coin: str, opened_ms: int) -> PlanRow | None:
                      .order_by(PlanRow.created_ms.desc())).scalars().first()
 
 
+def match_signal(s: Session, coin: str, opened_ms: int) -> dict[str, Any] | None:
+    """The card state shown most recently before the trade (within 6 h), from the per-coin signal history."""
+    hist = kv_get(s, f"signals:{coin}") or []
+    before = [h for h in hist if opened_ms - 6 * 3_600_000 <= int(h.get("ms", 0)) <= opened_ms + 60_000]
+    return before[-1] if before else None
+
+
 def _store_fills(s: Session, address: str, fills: list[dict[str, Any]]) -> int:
     have = set(s.execute(select(WalletFill.tid).where(WalletFill.address == address,
                                                       WalletFill.tid.in_([int(f["tid"]) for f in fills]))).scalars())
@@ -114,10 +121,18 @@ def _apply(row: WalletTrade, t: TradeAgg, pos: Position | None, s: Session) -> N
                 row.sl_first = pos.stop
         if pos.target is not None:
             row.tp_px = pos.target
-    if row.plan_id is None:
+    if row.plan_id is None and row.plan_direction is None:
+        # prefer what the card actually showed just before the trade; fall back to the logged plan
+        sig = match_signal(s, t.coin, t.opened_ms)
         p = match_plan(s, t.coin, t.opened_ms)
         if p is not None:
-            row.plan_id, row.plan_direction, row.plan_grade = p.id, p.direction, p.grade
+            row.plan_id = p.id
+        if sig is not None:
+            row.plan_direction, row.plan_grade = sig.get("direction"), sig.get("grade")
+            row.plan_confidence, row.plan_setup = sig.get("confidence"), sig.get("setup")
+            row.followed = sig.get("direction") == t.direction
+        elif p is not None:
+            row.plan_direction, row.plan_grade = p.direction, p.grade
             row.plan_confidence, row.plan_setup = p.confidence, p.setup
             row.followed = p.direction == t.direction
     stop = row.sl_first

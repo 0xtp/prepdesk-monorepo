@@ -44,9 +44,12 @@ async def _bars(hl: Hyperliquid, p: PlanRow, start: int, end: int, res: str) -> 
     return closed_only(r.data, res, end) if r.ok and r.data is not None else None
 
 
-async def score_open_plans(s: Session, hl: Hyperliquid, now_ms: int, limit: int = 60) -> dict[str, int]:
-    plans = s.execute(select(PlanRow).where(PlanRow.status.in_(["pending", "open"])).order_by(PlanRow.created_ms)
-                      .limit(limit)).scalars().all()
+async def score_open_plans(s: Session, hl: Hyperliquid, now_ms: int, limit: int = 60,
+                           coin: str | None = None) -> dict[str, int]:
+    q = select(PlanRow).where(PlanRow.status.in_(["pending", "open"]))
+    if coin is not None:
+        q = q.where(PlanRow.coin == coin)
+    plans = s.execute(q.order_by(PlanRow.created_ms).limit(limit)).scalars().all()
     counts = {"checked": 0, "resolved": 0, "errors": 0}
     cache: dict[tuple[str, str], pd.DataFrame] = {}
     for p in plans:

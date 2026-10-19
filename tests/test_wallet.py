@@ -114,3 +114,40 @@ def test_advice_no_stop_against_signal_liq_and_tp1_passed():
     good = Position("SOL", "LONG", 1, 100, 101, 50, 2, "isolated", 50, 1, 0.02, None, stops=[95], targets=[110])
     assert levels(advise(good, _view(sl=95, tp1=110, tp2=120, lev=2), 100)) == ["ok"]
     assert levels(advise(good, {"error": "x"}, 100)) == ["ok"]
+
+
+def test_correlation_flags_same_direction_positions():
+    from perpdesk.wallet.advice import correlation
+
+    a = Position("HYPE", "SHORT", 6.47, 76.51, 76.0, 80.1, 10, "isolated", 49.5, 1, 0.02, None, stops=[78.056])
+    b = Position("DOGE", "SHORT", 6490, 0.076366, 0.076, 0.0799, 10, "isolated", 49.6, 1, 0.02, None, stops=[0.077907])
+    c = Position("PENGU", "SHORT", 35013, 0.0071124, 0.0071, 0.00775, 5, "isolated", 49.8, 1, 0.02, None)
+    d = Position("SOL", "LONG", 1, 100, 101, 80, 3, "isolated", 33, 1, 0.03, None, stops=[95])
+    (cor,) = correlation([a, b, c, d])
+    assert cor.direction == "SHORT" and cor.coins == ["HYPE", "DOGE", "PENGU"] and cor.unprotected == ["PENGU"]
+    assert cor.risk_usd == pytest.approx(6.47 * (78.056 - 76.51) + 6490 * (0.077907 - 0.076366))
+    assert "3 SHORT positions" in cor.text and "one bet" in cor.text and "PENGU has no stop" in cor.text
+    assert correlation([a, d]) == []
+
+
+def test_match_signal_uses_card_history(tmp_path):
+    from perpdesk.db import session as dbs
+    from perpdesk.store import kv_set
+    from perpdesk.wallet.sync import match_signal
+
+    url = f"sqlite:///{tmp_path}/w.db"
+    dbs.get_engine.cache_clear()
+    dbs._factory.cache_clear()
+    dbs.migrate(url)
+    s = dbs._factory(url)()
+    h = 3_600_000
+    kv_set(s, "signals:DOGE", [{"ms": 10 * h, "direction": "LONG", "grade": "C"},
+                               {"ms": 13 * h, "direction": "SHORT", "grade": "C", "setup": "composite"},
+                               {"ms": 15 * h, "direction": "LONG", "grade": "B"}])
+    s.commit()
+    assert match_signal(s, "DOGE", 14 * h)["direction"] == "SHORT"  # latest card before the trade
+    assert match_signal(s, "DOGE", 25 * h) is None  # nothing within 6 h before
+    assert match_signal(s, "HYPE", 14 * h) is None
+    s.close()
+    dbs.get_engine.cache_clear()
+    dbs._factory.cache_clear()

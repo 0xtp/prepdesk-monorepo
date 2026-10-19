@@ -248,3 +248,34 @@ def test_auto_page_mode_kill_resume(app_env):
     assert 'value="SOL,BTC,ETH,HYPE,AVAX"' in s and 'value="trend_follow,funding_carry"' in s
     bad = c.post("/settings", data={"lab_bots": "trend_follow,moonshot"}, follow_redirects=False)
     assert "error=" in bad.headers["location"]
+
+
+def test_signal_guards_on_dashboard_and_plan_logging_after_refresh(app_env):
+    c = app_env
+    assert c.get("/api/cron/tick?budget=120", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    home = c.get("/").text
+    assert "Proven signals" in home and "Paper trading is off" in home
+    assert ("WATCH ONLY" in home or "TAKE" in home) and "stale-banner" in home and "data-updated=\"17" in home
+    from perpdesk.db.models import Asset, PlanRow
+    from perpdesk.db.session import session_scope
+
+    with session_scope() as s:
+        a = s.query(Asset).filter(Asset.hl_coin == "SOL").one()
+        aid = a.id
+        p = s.query(PlanRow).filter(PlanRow.coin == "SOL").order_by(PlanRow.created_ms.desc()).first()
+        assert p is not None
+        # simulate an old plan nobody scored (the scheduler was down): expired limit order still "pending"
+        p.status, p.entry_type, p.created_ms, p.expires_ms = "pending", "limit", p.created_ms - 10 * 3_600_000, \
+            p.created_ms - 9 * 3_600_000
+        old_id = p.id
+    assert c.post(f"/api/assets/{aid}/refresh").status_code == 200
+    with session_scope() as s:
+        old = s.get(PlanRow, old_id)
+        newest = s.query(PlanRow).filter(PlanRow.coin == "SOL").order_by(PlanRow.id.desc()).first()
+        assert old.status in ("expired", "closed") and newest.id != old_id  # the fresh signal got recorded
+        from perpdesk.store import kv_get
+
+        hist = kv_get(s, "signals:SOL")
+        assert hist and hist[-1]["direction"] in ("LONG", "SHORT") and "take" in hist[-1]
+    page = c.get(f"/asset/{aid}").text
+    assert "autoFresh(" in page and "Stale analysis" in page

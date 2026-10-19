@@ -3,7 +3,7 @@
 {% block title %}{{ a.symbol }} · {{ app_name() }}{% endblock %}
 {% block head %}<script src="/static/vendor/lightweight-charts.js" defer></script>{% endblock %}
 {% block content %}
-<div class="flex flex-col gap-5">
+<div class="flex flex-col gap-5" data-updated="{{ (v.updated_at if v else none)|epoch_ms }}" x-data="autoFresh({{ a.id }})" x-init="start()">
   <div class="flex flex-wrap items-center gap-3">
     <a href="/" class="text-zinc-500 hover:text-zinc-300 text-sm">← Dashboard</a>
     <h1 class="text-xl font-semibold text-zinc-100">{{ a.symbol }}</h1>
@@ -18,6 +18,8 @@
     <button class="rounded-md border border-zinc-800 px-3 py-1.5 text-sm text-zinc-500 hover:text-rose-300" hx-post="/favorites/{{ a.id }}/delete" hx-confirm="Remove {{ a.symbol }} from favourites?">Remove</button>
   </div>
 
+  <div class="stale-banner hidden rounded-lg bg-rose-500/15 ring-1 ring-rose-500/30 px-3 py-2 text-sm text-rose-200">⛔ <b>Stale analysis</b>: last updated <span class="stale-age">a while</span> ago. The direction, entry and stop below may no longer be valid. Press ↻ Refresh before trading.</div>
+  <p x-show="refreshing" x-cloak class="text-xs text-indigo-300">Analysis is older than 15 min, refreshing with live data…</p>
   <div class="grid gap-5 lg:grid-cols-3">
     <section class="lg:col-span-2 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3" x-data="chart({{ a.id }})" x-init="load('1h')">
       <div class="flex items-center gap-1 mb-2 text-xs">
@@ -30,7 +32,7 @@
         <span class="text-indigo-300">— entry</span><span class="text-rose-300">— stop</span><span class="text-emerald-300">— targets</span><span>··· levels</span>{% if a.hl_coin == 'BTC' %}<span class="text-amber-300">▭ CME gaps</span>{% endif %}
       </div>
     </section>
-    <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4" x-data="{}">
+    <section class="plan-block rounded-xl border border-zinc-800 bg-zinc-900/60 p-4" x-data="{}">
       <form class="grid grid-cols-3 gap-2 mb-4 text-xs" hx-post="/asset/{{ a.id }}/plan" hx-target="#plan-panel" hx-swap="outerHTML" hx-trigger="change delay:300ms, submit" hx-indicator="#plan-ind">
         <label class="text-zinc-500">Margin $<input name="margin" type="number" step="any" min="1" value="{{ settings.default_margin_usd|int }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
         <label class="text-zinc-500">Risk $<input name="risk_usd" type="number" step="any" min="0" placeholder="auto" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
@@ -124,6 +126,18 @@ function levSlider(rows, rec, sym, dir){return{rows, rec, sym, dir, lev:rec, cop
       'Size: '+s.qty+' '+sym+' ($'+s.notional.toFixed(0)+') · risk $'+s.risk_usd.toFixed(2), 'Liquidation: '+(s.liq?fmtPx(s.liq):'none')].join('\n');
     navigator.clipboard.writeText(t); this.copied=true; setTimeout(()=>this.copied=false,1500) }
 }}
+function autoFresh(id){return{refreshing:false,
+  start(){
+    const t=Number(this.$el.dataset.updated)||NaN; const key='pd-autofresh-'+id;
+    let last=0; try{ last=parseInt(sessionStorage.getItem(key)||'0') }catch(e){}
+    // refresh once per 5 min at most, only when the analysis is older than 15 min (never loops on errors)
+    if((isNaN(t) || Date.now()-t > 15*60*1000) && Date.now()-last > 5*60*1000){
+      try{ sessionStorage.setItem(key, String(Date.now())) }catch(e){}
+      this.refreshing=true;
+      fetch('/api/assets/'+id+'/refresh',{method:'POST',headers:{'HX-Request':'true'}})
+        .then(r=>{ if(r.ok) location.reload(); else this.refreshing=false }).catch(()=>{ this.refreshing=false });
+    }
+  }}}
 const TF_SEC={'15m':900,'1h':3600,'4h':14400,'1d':86400,'1w':604800};
 function chart(id){return{tf:'1h', msg:'', chart:null, series:{}, lines:[], last:null, hooked:false,
   live(d){

@@ -1,6 +1,6 @@
 {% from "_macros.html" import dir_badge, grade_chip, move_icon, caution, spark, conf_bar %}
 {% set a = c.asset %}{% set v = c.v %}
-<article id="card-{{ a.id }}" data-id="{{ a.id }}" data-grade="{{ v.grade if v and v.grade else 'Z' }}"
+<article id="card-{{ a.id }}" data-id="{{ a.id }}" data-grade="{{ v.grade if v and v.grade else 'Z' }}" data-updated="{{ (v.updated_at if v else none)|epoch_ms }}"
   class="card group relative rounded-xl border border-zinc-800 bg-zinc-900/60 hover:border-zinc-700 transition p-4 flex flex-col gap-3 h-full">
   <div class="flex items-start gap-3">
     <span class="drag-handle cursor-grab text-zinc-600 hover:text-zinc-400 select-none pt-1" title="Drag to reorder">⋮⋮</span>
@@ -24,10 +24,12 @@
   </div>
 
   {% if v and not v.error %}
-  <a href="/asset/{{ a.id }}" class="flex flex-col gap-3">
+  <div class="stale-banner hidden rounded-md bg-rose-500/15 ring-1 ring-rose-500/30 px-2.5 py-1.5 text-xs text-rose-200">⛔ <b>Stale</b>: last analysed <span class="stale-age">a while</span> ago. Press ↻ before trading this.</div>
+  <a href="/asset/{{ a.id }}" class="plan-block flex flex-col gap-3">
     <div class="flex items-center gap-2 flex-wrap">
-      {{ dir_badge(v.direction) }} {{ grade_chip(v.grade) }} {{ move_icon(v.expected_move) }} {{ caution(v.flags) }}
-      <span class="ml-auto text-[11px] font-semibold rounded px-1.5 py-0.5 {{ 'bg-indigo-500/15 text-indigo-300' if v.take else 'bg-zinc-800 text-zinc-500' }}" title="{{ v.take_reason }}">{{ 'TAKE' if v.take else 'SKIP' }}</span>
+      <span class="{{ '' if v.take else 'opacity-50' }}">{{ dir_badge(v.direction) }}</span> {{ grade_chip(v.grade) }} {{ move_icon(v.expected_move) }} {{ caution(v.flags) }}
+      {% if v.take %}<span class="ml-auto text-[11px] font-semibold rounded px-1.5 py-0.5 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30" title="{{ v.take_reason }}">TAKE</span>
+      {% else %}<span class="ml-auto text-[11px] font-semibold rounded px-1.5 py-0.5 bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20" title="Not a trade signal: {{ v.take_reason }}. This kind of signal lost money in backtests. See Proven signals at the top of the dashboard.">WATCH ONLY</span>{% endif %}
     </div>
     {{ conf_bar(v.confidence) }}
     <dl class="grid grid-cols-3 gap-2 text-xs tabular-nums">

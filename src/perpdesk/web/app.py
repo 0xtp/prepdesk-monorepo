@@ -104,7 +104,20 @@ def ms_utc(ms: Any) -> str:
 
 
 GRADE_ORDER = {"A": 0, "B": 1, "C": 2}
-templates.env.filters.update(px=fmt_px, usd=fmt_usd, pct=fmt_pct, ago=ago, ms_utc=ms_utc)
+def epoch_ms(iso: Any) -> str:
+    """ISO timestamp -> epoch milliseconds as text ('' if unknown), for browser-side age checks."""
+    if not iso:
+        return ""
+    try:
+        t = iso if isinstance(iso, datetime) else datetime.fromisoformat(str(iso))
+    except ValueError:
+        return ""
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=UTC)
+    return str(int(t.timestamp() * 1000))
+
+
+templates.env.filters.update(px=fmt_px, usd=fmt_usd, pct=fmt_pct, ago=ago, ms_utc=ms_utc, epoch_ms=epoch_ms)
 def trade_link(a: Any) -> tuple[str, str] | None:
     """Where to trade/view this asset: Hyperliquid for perps and named spot pairs, DexScreener otherwise."""
     if getattr(a, "perp_available", False) and getattr(a, "hl_coin", None):

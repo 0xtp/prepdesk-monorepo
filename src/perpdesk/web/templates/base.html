@@ -13,6 +13,7 @@
     @keyframes pd-up{from{background:rgba(52,211,153,.35)}to{background:transparent}}
     @keyframes pd-down{from{background:rgba(251,113,133,.35)}to{background:transparent}}
     .flash-up{animation:pd-up 1.2s ease-out;border-radius:3px}.flash-down{animation:pd-down 1.2s ease-out;border-radius:3px}
+    .is-stale .plan-block{opacity:.35;filter:grayscale(1)}.is-stale .stale-banner{display:block!important}
   </style>
   {% block head %}{% endblock %}
 </head>
@@ -85,6 +86,23 @@
   setTimeout(poll,3000); setInterval(poll,20000);
   document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&Date.now()-lastRun>20000) poll() });
   document.body.addEventListener('htmx:afterSwap',()=>setTimeout(poll,500));
+})();
+</script>
+<script>
+/* Stale-signal guard: any element with data-updated older than 90 min gets .is-stale (dimmed plan + red banner).
+   Re-checked every 30 s and after every HTMX swap, so a page left open goes stale on its own. */
+(function(){
+  const LIMIT=90*60*1000;
+  function fmt(ms){const m=Math.round(ms/60000); return m<120? m+' min' : (m<2880? Math.round(m/60)+' h' : Math.round(m/1440)+' days')}
+  function check(){
+    for(const el of document.querySelectorAll('[data-updated]')){
+      const t=Number(el.dataset.updated); if(!t) continue;
+      const age=Date.now()-t, stale=age>LIMIT; el.classList.toggle('is-stale',stale);
+      const s=el.querySelector('.stale-age'); if(s) s.textContent=fmt(age);
+    }
+  }
+  window.pdStaleCheck=check; check(); setInterval(check,30000);
+  document.body.addEventListener('htmx:afterSwap',()=>setTimeout(check,50));
 })();
 </script>
 {% block scripts %}{% endblock %}

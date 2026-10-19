@@ -45,8 +45,29 @@ def dashboard(request: Request, s: Session = Depends(db)) -> HTMLResponse:
                                              -((c["v"] or {}).get("confidence") or 0)))
     return templates.TemplateResponse(request, "dashboard.html", {
         "cards": cs, "sorted_cards": sorted_cards, "groups": groups(s), "grade_counts": grade_counts,
-        "hb": _heartbeats(s), "settings": st, "page": "dashboard",
+        "hb": _heartbeats(s), "settings": st, "page": "dashboard", **_dashboard_extras(s, st),
     })
+
+
+def _dashboard_extras(s: Session, st: Any) -> dict[str, Any]:
+    """Proven-strategy signals (the paper bots' open trades) and a warning when your own open positions are one
+    correlated bet. Both are read from the database only (no exchange calls on page load)."""
+    from perpdesk.auto.report import BOT_INFO
+    from perpdesk.db.models import AutoTrade
+    from perpdesk.pipeline import now_ms
+    from perpdesk.wallet.report import positions_view
+
+    enabled = {"breakout", *st.lab_bots}
+    rows = [t for t in s.execute(select(AutoTrade).where(AutoTrade.mode == "paper",
+                                                         AutoTrade.status.in_(["pending", "open"]))
+                                 .order_by(AutoTrade.created_ms.desc())).scalars() if t.setup in enabled]
+    corr: list[str] = []
+    if st.watch_wallet:
+        try:
+            corr = positions_view(s, st)["correlation"]
+        except Exception:
+            corr = []
+    return {"proven": rows, "bot_labels": BOT_INFO, "now_ms": now_ms(), "wallet_corr": corr}
 
 
 @router.get("/asset/{asset_id}", response_class=HTMLResponse)

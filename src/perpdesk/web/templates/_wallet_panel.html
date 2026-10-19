@@ -54,6 +54,8 @@
     </div>
   </div>
 
+  {% for c in w.correlation %}<div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-500/30 text-amber-100 text-sm px-4 py-3">⚠ {{ c }} Consider closing some or splitting one risk amount across them.</div>{% endfor %}
+
   {# ---- status + tabs #}
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-800">
     <nav class="flex gap-1 text-sm -mb-px">
@@ -146,7 +148,7 @@
           {% if t.r_multiple is not none %}<span class="ml-1 text-zinc-400">{{ '%+.2f'|format(t.r_multiple) }}R</span>{% endif %}
         </div>
         <div class="md:col-span-2 text-[11px]">
-          {% if t.plan_id %}<span class="{{ 'text-emerald-400' if t.followed else 'text-rose-400' }}">{{ '✓ followed' if t.followed else '✗ against' }}</span> <span class="text-zinc-500">{{ t.plan_direction }} {{ t.plan_grade }}</span>{% else %}<span class="text-zinc-600">no signal</span>{% endif %}
+          {% if t.plan_direction %}<span class="{{ 'text-emerald-400' if t.followed else 'text-rose-400' }}">{{ '✓ followed' if t.followed else '✗ against' }}</span> <span class="text-zinc-500">{{ t.plan_direction }} {{ t.plan_grade }}</span>{% else %}<span class="text-zinc-600">no signal</span>{% endif %}
         </div>
         <div class="hidden md:block md:col-span-2 text-right">
           <div class="text-sm font-semibold">{{ money(t.net_pnl) }}</div>

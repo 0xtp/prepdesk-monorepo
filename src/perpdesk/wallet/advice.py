@@ -152,3 +152,34 @@ def advise(pos: Position, plan_view: dict[str, Any] | None, risk_pct_of_margin: 
     if not out:
         out.append(Advice("ok", "Stop and target are set and consistent with the current plan."))
     return out
+
+
+@dataclass
+class Correlated:
+    direction: str
+    coins: list[str]
+    risk_usd: float  # combined loss if every protected position hits its stop
+    unprotected: list[str]  # positions without a stop: their loss is open-ended until liquidation
+
+    @property
+    def text(self) -> str:
+        n = len(self.coins)
+        risk = f"together they lose about ${self.risk_usd:,.2f} if price moves against you" if self.risk_usd else ""
+        if self.unprotected:
+            verb = "has" if len(self.unprotected) == 1 else "have"
+            risk = (risk + "; " if risk else "") + f"{', '.join(self.unprotected)} {verb} no stop"
+        return (f"{n} {self.direction} positions at once ({', '.join(self.coins)}). Crypto coins move together with "
+                f"BTC, so this is effectively one bet with {n}× the risk" + (f": {risk}." if risk else "."))
+
+
+def correlation(positions: list[Position]) -> list[Correlated]:
+    """Two or more open positions in the same direction behave like one larger position."""
+    out = []
+    for d in ("LONG", "SHORT"):
+        ps = [p for p in positions if p.direction == d]
+        if len(ps) < 2:
+            continue
+        sign = 1 if d == "LONG" else -1
+        risk = sum(max(0.0, sign * (p.entry - p.stop)) * p.size for p in ps if p.stop is not None)
+        out.append(Correlated(d, [p.coin for p in ps], risk, [p.coin for p in ps if p.stop is None]))
+    return out

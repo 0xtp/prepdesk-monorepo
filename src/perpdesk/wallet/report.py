@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from perpdesk.config import Settings
 from perpdesk.db.models import Asset, LatestView, WalletTrade
-from perpdesk.wallet.advice import _f, advise
+from perpdesk.wallet.advice import Advice, _f, advise, correlation
 from perpdesk.wallet.sync import load_state, positions_from_state
 
 
@@ -48,9 +48,13 @@ def positions_view(s: Session, settings: Settings) -> dict[str, Any]:
     order = {"danger": 0, "warn": 1, "info": 2, "ok": 3}
     positions: list[dict[str, Any]] = []
     upnl, actions = 0.0, 0
-    for p in positions_from_state(state):
+    pos_list = positions_from_state(state)
+    corr = correlation(pos_list)
+    for p in pos_list:
         a, v = views.get(p.coin, (None, None))
-        adv = sorted(advise(p, v, settings.risk_pct_of_margin), key=lambda x: order.get(x.level, 9))
+        adv = advise(p, v, settings.risk_pct_of_margin)
+        adv += [Advice("warn", c.text) for c in corr if p.coin in c.coins]
+        adv = sorted(adv, key=lambda x: order.get(x.level, 9))
         upnl += p.upnl or 0.0
         actions += sum(1 for x in adv if x.level in ("danger", "warn"))
         positions.append({"p": p.as_dict(), "advice": adv, "worst": adv[0].level if adv else "ok", "asset": a,
@@ -58,7 +62,7 @@ def positions_view(s: Session, settings: Settings) -> dict[str, Any]:
     positions.sort(key=lambda x: order.get(str(x["worst"]), 9))
     ms = ((state or {}).get("clearinghouse") or {}).get("marginSummary") or {}
     return {"address": address, "positions": positions, "synced_at": at,
-            "open_pnl": upnl, "actions": actions,
+            "open_pnl": upnl, "actions": actions, "correlation": [c.text for c in corr],
             "account_value": _f(ms.get("accountValue")),
             "withdrawable": _f(((state or {}).get("clearinghouse") or {}).get("withdrawable"))}
 
