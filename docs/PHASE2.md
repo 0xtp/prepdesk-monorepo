@@ -40,7 +40,7 @@ in its way, *caution* when one sits before TP1. Both backtests report results by
 (`perpdesk lab`: "room …" lines; `perpdesk backtest`: "by room to move"). `ROOM_CHECK_FILTER` stays off unless
 skipping *block* trades improves the 2021–2026 results.
 
-ROOM_RESULTS_PLACEHOLDER
+Results: pending (lab-backtest and backtest runs on 2021–2026 data).
 
 ### Plan for live (not built)
 - Agent wallet on a funded sub-account. The agent can trade but cannot withdraw; the key lives only in
