@@ -34,7 +34,7 @@
 
 {% macro verdict_reason(vd) -%}
 {% if vd %}<p class="verdict-reason text-xs {{ 'text-emerald-200' if vd.take else 'text-zinc-400' }}"><b>{{ 'TAKE' if vd.take else 'SKIP' }}:</b> {{ vd.reason }}</p>
-{% for c in vd.cautions %}<p class="text-xs text-amber-300">⚠ Caution: {{ c }} — half size or skip.</p>{% endfor %}{% endif %}
+{% for c in vd.cautions %}<p class="text-[11px] text-zinc-400" title="In the 2021–2026 backtest this did not make the proven bots' trades worse, so it does not change the verdict.">ⓘ Level in the way: {{ c }} (info only — no effect in the backtest)</p>{% endfor %}{% endif %}
 {%- endmacro %}
 
 {% macro sr_line(vd) -%}

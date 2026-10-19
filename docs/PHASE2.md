@@ -40,7 +40,18 @@ in its way, *caution* when one sits before TP1. Both backtests report results by
 (`perpdesk lab`: "room …" lines; `perpdesk backtest`: "by room to move"). `ROOM_CHECK_FILTER` stays off unless
 skipping *block* trades improves the 2021–2026 results.
 
-Results: pending (lab-backtest and backtest runs on 2021–2026 data).
+Results (2021-01-01 → 2026-10-19, run 2026-10-19; avg R per trade, OOS + hold-out for breakout):
+
+| Bot | ok | caution | block | all | all minus block |
+|---|---|---|---|---|---|
+| breakout (SOL/BTC/ETH/HYPE, 4h) | +0.116 (224) | +0.086 (103) | **+0.130 (311)** | +0.118 (638), +75.4R | +0.107 (327), +34.9R |
+| trend follower (12 coins) | +0.092 (740) | – | +0.037 (858) | +0.062 (1598), +99.6R | +0.092 (740), +67.9R |
+
+Breakout trades flagged *block* did as well as the rest, so skipping them would have halved total profit. For the
+trend follower, *block* trades were weaker overall but better than *ok* in 2022–2025 and worse in 2021 and 2026:
+not a stable effect, and skipping them still cuts total R by a third. **Decision: `ROOM_CHECK_FILTER` stays off**
+and the room note on cards is informational only. (The losing composite / trend-pullback setups do improve without
+*block* trades, but they are not traded.)
 
 ### Plan for live (not built)
 - Agent wallet on a funded sub-account. The agent can trade but cannot withdraw; the key lives only in
