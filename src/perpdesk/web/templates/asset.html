@@ -47,7 +47,7 @@
   <div class="grid gap-5 lg:grid-cols-3">
     <section class="lg:col-span-2 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">
       <h2 class="text-sm font-semibold text-zinc-200 mb-1">Factors</h2>
-      <p class="text-xs text-zinc-500 mb-3">Score −2 (strong bearish) … +2 (strong bullish). Composite {{ '%+.2f'|format(v.score) }}, confidence {{ v.confidence }}. Grey rows are information only (not scored).</p>
+      <p class="text-xs text-zinc-500 mb-3">Score −2 (strong bearish) … +2 (strong bullish). Composite {{ '%+.2f'|format(v.score) }}, signal strength {{ v.confidence }}/100 (not a win chance). Grey rows are information only (not scored).</p>
       {% set tfs = ['1w','1d','4h','1h','15m'] %}
       {% set per_tf = v.factors|selectattr('tf', 'in', tfs)|list %}
       {% set names = [] %}{% for f in per_tf %}{% if (f.group, f.name) not in names %}{% set _ = names.append((f.group, f.name)) %}{% endif %}{% endfor %}

@@ -1,0 +1,37 @@
+{# Trading guide shown from the My trades page. Situation rules match the TAKE/SKIP logic in verdict.py. #}
+<div x-show="guide" x-cloak class="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4" @keydown.escape.window="guide=false" @click.self="guide=false">
+  <div class="mt-6 w-full max-w-3xl rounded-2xl border border-zinc-800 bg-zinc-950 p-5 flex flex-col gap-5 text-sm" role="dialog" aria-label="Trading guide">
+    <div class="flex items-center gap-2">
+      <h2 class="text-base font-semibold text-zinc-100">Guide: when to trade, and how big</h2>
+      <button type="button" class="ml-auto rounded-md px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" @click="guide=false" aria-label="Close">✕</button>
+    </div>
+    <p class="text-xs text-zinc-400">Risk = what you lose if the stop is hit, as a share of your whole account. Always use the app's stop. Nothing here is a promise: the proven bots also have losing weeks.</p>
+
+    <section class="flex flex-col gap-2">
+      <h3 class="text-xs uppercase tracking-wide text-zinc-500">By situation</h3>
+      <div class="overflow-x-auto"><table class="w-full text-xs">
+        <thead class="text-zinc-500 text-left"><tr><th class="py-1.5 pr-3 w-32">Signal</th><th class="py-1.5 pr-3">When</th><th class="py-1.5">What to do</th></tr></thead>
+        <tbody class="divide-y divide-zinc-800 align-top">
+          <tr><td class="py-2 pr-3 font-semibold text-emerald-300">✅ GO</td><td class="py-2 pr-3 text-zinc-300">Card says <b>TAKE</b>: a NEW proven signal (under 30 min old), price still near the entry, and you have no position in the same direction.</td><td class="py-2 text-zinc-200">Trade it with the app's stop. Risk 1–2%.</td></tr>
+          <tr><td class="py-2 pr-3 font-semibold text-amber-300">⚠️ CAUTION</td><td class="py-2 pr-3 text-zinc-300">Signal 30–120 min old · price already moved toward the target · next support/resistance sits before TP1 · an event within 2h · any ⚠ flag · you already hold one position in the same direction.</td><td class="py-2 text-zinc-200">Half size, or skip.</td></tr>
+          <tr><td class="py-2 pr-3 font-semibold text-orange-300">🎲 GAMBLE</td><td class="py-2 pr-3 text-zinc-300">SKIP cards (the general analysis) at any signal strength · coins the bots don't cover (PENGU, AERO) · leverage above the recommended (amber slider) · trading against the BTC trend.</td><td class="py-2 text-zinc-200">Don't. If you must, tiny size only.</td></tr>
+          <tr><td class="py-2 pr-3 font-semibold text-rose-300">⛔ DON'T TOUCH</td><td class="py-2 pr-3 text-zinc-300">Stale card · no stop · red slider · 2 losses already today · it would be your 3rd position in the same direction · price moved more than 1R since the signal · major news within 30 min · target closer than the stop.</td><td class="py-2 text-zinc-200">No trade.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="flex flex-col gap-2">
+      <h3 class="text-xs uppercase tracking-wide text-zinc-500">By coin <span class="normal-case text-zinc-600">(how the proven bots did on each coin in the 2021–2026 backtests)</span></h3>
+      <div class="overflow-x-auto"><table class="w-full text-xs">
+        <thead class="text-zinc-500 text-left"><tr><th class="py-1.5 pr-3 w-40">Tier</th><th class="py-1.5 pr-3">Coins</th><th class="py-1.5">Meaning</th></tr></thead>
+        <tbody class="divide-y divide-zinc-800">
+          <tr><td class="py-2 pr-3 font-semibold text-emerald-300">✅ Strongest</td><td class="py-2 pr-3 text-zinc-100 font-medium">ETH, BTC, SUI, SOL</td><td class="py-2 text-zinc-400">Most consistent results; normal size on TAKE.</td></tr>
+          <tr><td class="py-2 pr-3 font-semibold text-lime-300">👍 Decent</td><td class="py-2 pr-3 text-zinc-100 font-medium">ZEC, UNI, DOGE</td><td class="py-2 text-zinc-400">Positive but less steady.</td></tr>
+          <tr><td class="py-2 pr-3 font-semibold text-amber-300">⚠️ Mixed</td><td class="py-2 pr-3 text-zinc-100 font-medium">LINK, AVAX, ENA</td><td class="py-2 text-zinc-400">Good and bad years; consider half size.</td></tr>
+          <tr><td class="py-2 pr-3 font-semibold text-orange-300">🎲 Weak / short history</td><td class="py-2 pr-3 text-zinc-100 font-medium">HYPE, ONDO</td><td class="py-2 text-zinc-400">Too little data to trust; small size.</td></tr>
+          <tr><td class="py-2 pr-3 font-semibold text-rose-300">⛔ Not tested</td><td class="py-2 pr-3 text-zinc-100 font-medium">PENGU, AERO</td><td class="py-2 text-zinc-400">No bot covers them, so every signal is a gamble.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+  </div>
+</div>

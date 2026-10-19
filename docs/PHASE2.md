@@ -27,6 +27,21 @@ The lab bots share their code with `perpdesk lab`, the 2021-onward backtest. Onl
   capped at `AUTO_MAX_LEVERAGE` isolated; liquidation must sit `MIN_LIQ_BUFFER_ATR` beyond the stop.
 - **Exits:** stop; 50% at TP1 then stop to break-even; rest at TP2; `MAX_HOLD_HOURS` time stop.
 
+### TAKE / SKIP on the coin cards
+A card is TAKE only for a proven bot's signal (above) that is under 30 min old, with price within
+`AUTO_MAX_ENTRY_DRIFT_R` of the bot's entry, no market-wide ⚠ flag, and a fresh card (`src/perpdesk/verdict.py`).
+Everything else is SKIP with one reason. The general plan needs grade A, or `TAKE_MIN_LIVE_TRADES` live trades with
+t > 2, to show TAKE.
+
+### Room check (support / resistance in the way)
+At each signal, the levels a live 1h card would show (1h and 4H pivot clusters, untested equal highs/lows, last day
+and week) are rebuilt from closed bars only (`lab/room.py`). A trade is *block* when a strong level sits within 0.5R
+in its way, *caution* when one sits before TP1. Both backtests report results by room status
+(`perpdesk lab`: "room …" lines; `perpdesk backtest`: "by room to move"). `ROOM_CHECK_FILTER` stays off unless
+skipping *block* trades improves the 2021–2026 results.
+
+ROOM_RESULTS_PLACEHOLDER
+
 ### Plan for live (not built)
 - Agent wallet on a funded sub-account. The agent can trade but cannot withdraw; the key lives only in
   hosting secrets.

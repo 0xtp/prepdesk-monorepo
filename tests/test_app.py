@@ -255,7 +255,9 @@ def test_signal_guards_on_dashboard_and_plan_logging_after_refresh(app_env):
     assert c.get("/api/cron/tick?budget=120", headers={"Authorization": "Bearer s3cret"}).status_code == 200
     home = c.get("/").text
     assert "Proven signals" in home and "Paper trading is off" in home
-    assert ("WATCH ONLY" in home or "TAKE" in home) and "stale-banner" in home and "data-updated=\"17" in home
+    assert "SKIP" in home and "stale-banner" in home and "data-updated=\"17" in home
+    assert "Signal strength" not in home  # hidden on SKIP cards
+    assert "Guide" in c.get("/wallet").text and "DON'T TOUCH" in c.get("/wallet").text
     from perpdesk.db.models import Asset, PlanRow
     from perpdesk.db.session import session_scope
 
@@ -279,3 +281,24 @@ def test_signal_guards_on_dashboard_and_plan_logging_after_refresh(app_env):
         assert hist and hist[-1]["direction"] in ("LONG", "SHORT") and "take" in hist[-1]
     page = c.get(f"/asset/{aid}").text
     assert "autoFresh(" in page and "Stale analysis" in page
+    _proven_signal_makes_card_take(c, aid)
+
+
+def _proven_signal_makes_card_take(c, aid):
+    from perpdesk.db.models import AutoTrade, LatestView
+    from perpdesk.db.session import session_scope
+    from perpdesk.pipeline import now_ms
+    from perpdesk.store import utcnow
+
+    with session_scope() as s:
+        px = s.get(LatestView, aid).payload["price"]
+        s.add(AutoTrade(mode="paper", coin="SOL", asset_id=aid, setup="breakout", direction="LONG", status="pending",
+                        signal_ms=now_ms(), created_ms=now_ms() - 60_000, entry_type="market", entry=px, sl=px * 0.97,
+                        tp1=px * 1.05, tp2=px * 1.1, runaway=px * 1.3, expires_ms=now_ms() + 3_600_000,
+                        max_hold_ms=3_600_000, qty=1, leverage=2, notional=px, margin=px / 2, risk_usd=5,
+                        entry_fee=0, exit_fee=0, slippage=0, client_id="test:take", tp1_hit=False,
+                        updated_at=utcnow()))
+    card = c.get(f"/api/assets/{aid}/card").text
+    flagged = "verdict-reason" in card and "⚠" in card.split("verdict-reason")[1][:300]
+    assert ("Proven: Breakout" in card and ">TAKE<" in card and "data-take-until" in card) or flagged, card
+    assert "Next support" in card or "next resistance" in card or "No strong support" in card

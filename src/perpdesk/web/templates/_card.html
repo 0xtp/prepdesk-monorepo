@@ -1,6 +1,6 @@
-{% from "_macros.html" import dir_badge, grade_chip, move_icon, caution, spark, conf_bar %}
-{% set a = c.asset %}{% set v = c.v %}
-<article id="card-{{ a.id }}" data-id="{{ a.id }}" data-grade="{{ v.grade if v and v.grade else 'Z' }}" data-updated="{{ (v.updated_at if v else none)|epoch_ms }}"
+{% from "_macros.html" import dir_badge, grade_chip, move_icon, caution, spark, conf_bar, verdict_badge, verdict_reason, sr_line, bot_plan %}
+{% set a = c.asset %}{% set v = c.v %}{% set vd = c.vd %}
+<article id="card-{{ a.id }}" data-id="{{ a.id }}" data-grade="{{ v.grade if v and v.grade else 'Z' }}" data-updated="{{ (v.updated_at if v else none)|epoch_ms }}"{% if vd and vd.take_until_ms %} data-take-until="{{ vd.take_until_ms }}"{% endif %}
   class="card group relative rounded-xl border border-zinc-800 bg-zinc-900/60 hover:border-zinc-700 transition p-4 flex flex-col gap-3 h-full">
   <div class="flex items-start gap-3">
     <span class="drag-handle cursor-grab text-zinc-600 hover:text-zinc-400 select-none pt-1" title="Drag to reorder">⋮⋮</span>
@@ -27,19 +27,25 @@
   <div class="stale-banner hidden rounded-md bg-rose-500/15 ring-1 ring-rose-500/30 px-2.5 py-1.5 text-xs text-rose-200">⛔ <b>Stale</b>: last analysed <span class="stale-age">a while</span> ago. Press ↻ before trading this.</div>
   <a href="/asset/{{ a.id }}" class="plan-block flex flex-col gap-3">
     <div class="flex items-center gap-2 flex-wrap">
-      <span class="{{ '' if v.take else 'opacity-50' }}">{{ dir_badge(v.direction) }}</span> {{ grade_chip(v.grade) }} {{ move_icon(v.expected_move) }} {{ caution(v.flags) }}
-      {% if v.take %}<span class="ml-auto text-[11px] font-semibold rounded px-1.5 py-0.5 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30" title="{{ v.take_reason }}">TAKE</span>
-      {% else %}<span class="ml-auto text-[11px] font-semibold rounded px-1.5 py-0.5 bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20" title="Not a trade signal: {{ v.take_reason }}. This kind of signal lost money in backtests. See Proven signals at the top of the dashboard.">WATCH ONLY</span>{% endif %}
+      {% if vd and vd.take and vd.bot %}{{ dir_badge(vd.bot.direction) if vd.bot.direction in ('LONG','SHORT') else '' }}<span class="text-[11px] text-emerald-300">{{ vd.bot.label }}</span>
+      {% else %}<span class="opacity-50">{{ dir_badge(v.direction) }}</span> {{ grade_chip(v.grade) }}{% endif %} {{ caution(v.flags) }}
+      {{ verdict_badge(vd) }}
     </div>
-    {{ conf_bar(v.confidence) }}
-    <dl class="grid grid-cols-3 gap-2 text-xs tabular-nums">
-      <div><dt class="text-zinc-500">Entry</dt><dd class="text-zinc-200">{% if v.plan.entry_type == 'limit' %}{{ v.plan.zone[0]|px }}–{{ v.plan.zone[1]|px }}{% else %}{{ v.plan.entry|px }}{% endif %}</dd></div>
-      <div><dt class="text-zinc-500">SL</dt><dd class="text-zinc-200">{{ v.plan.sl|px }}</dd></div>
-      <div><dt class="text-zinc-500">TP1 / TP2</dt><dd class="text-zinc-200">{{ v.plan.tp1|px }} / {{ v.plan.tp2|px }}</dd></div>
-    </dl>
-    <div class="flex items-center justify-between text-xs text-zinc-500 tabular-nums">
-      <span title="Win = chance TP1 is hit before the stop (from backtests). Break-even = win rate this R:R needs to not lose money.">{% if v.plan.win %}Win {{ '~' if v.plan.win.low_sample }}{{ (v.plan.win.p*100)|round|int }}%{% else %}Win: not tested yet{% endif %} · needs {{ (v.plan.break_even*100)|round|int }}% to break even</span>
-      {% if v.funding is not none %}<span title="Hourly funding {{ '%.5f'|format(v.funding*100) }}% · {{ '%.1f'|format(v.funding_apr*100) }}% APR">Fund {{ '%.4f'|format(v.funding_8h*100) }}%/8h</span>{% endif %}
+    {{ verdict_reason(vd) }}
+    {% if vd and vd.take and vd.bot %}{{ bot_plan(vd.bot) }}{% endif %}
+    {{ sr_line(vd) }}
+    {% if vd and vd.take and not vd.bot %}{{ conf_bar(v.confidence) }}{% endif %}
+    <div class="{{ 'opacity-60' if not (vd and vd.take and not vd.bot) }} flex flex-col gap-2">
+      {% if not (vd and vd.take and not vd.bot) %}<div class="text-[10px] uppercase tracking-wide text-zinc-500">Context only · general analysis {{ v.direction }} {{ move_icon(v.expected_move) }}</div>{% endif %}
+      <dl class="grid grid-cols-3 gap-2 text-xs tabular-nums">
+        <div><dt class="text-zinc-500">Entry</dt><dd class="text-zinc-300">{% if v.plan.entry_type == 'limit' %}{{ v.plan.zone[0]|px }}–{{ v.plan.zone[1]|px }}{% else %}{{ v.plan.entry|px }}{% endif %}</dd></div>
+        <div><dt class="text-zinc-500">SL</dt><dd class="text-zinc-300">{{ v.plan.sl|px }}</dd></div>
+        <div><dt class="text-zinc-500">TP1 / TP2</dt><dd class="text-zinc-300">{{ v.plan.tp1|px }} / {{ v.plan.tp2|px }}</dd></div>
+      </dl>
+      <div class="flex items-center justify-between text-xs text-zinc-500 tabular-nums">
+        <span title="Win = chance TP1 is hit before the stop (from backtests). Break-even = win rate this R:R needs to not lose money.">{% if v.plan.win %}Win {{ '~' if v.plan.win.low_sample }}{{ (v.plan.win.p*100)|round|int }}%{% else %}Win: not tested yet{% endif %} · needs {{ (v.plan.break_even*100)|round|int }}% to break even</span>
+        {% if v.funding is not none %}<span title="Hourly funding {{ '%.5f'|format(v.funding*100) }}% · {{ '%.1f'|format(v.funding_apr*100) }}% APR">Fund {{ '%.4f'|format(v.funding_8h*100) }}%/8h</span>{% endif %}
+      </div>
     </div>
     {{ spark(v.spark, v.direction == 'LONG') }}
     {% if v.warnings %}<p class="text-xs text-rose-400">⚠ {{ v.warnings|join(' · ') }}</p>{% endif %}

@@ -2,13 +2,15 @@
 {% block title %}My trades · {{ app_name() }}{% endblock %}
 {% block content %}
 {% set addr = settings.watch_wallet %}
-<div class="flex flex-col gap-5" x-data="{tab: (()=>{try{return localStorage.getItem('pd-wtab')||'open'}catch(e){return 'open'}})(), edit: {{ 'false' if addr else 'true' }}, copied:false}"
+<div class="flex flex-col gap-5" x-data="{tab: (()=>{try{return localStorage.getItem('pd-wtab')||'open'}catch(e){return 'open'}})(), edit: {{ 'false' if addr else 'true' }}, copied:false, guide: location.hash==='#guide'}"
      x-init="$watch('tab', v=>{try{localStorage.setItem('pd-wtab',v)}catch(e){}})">
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
     <div class="mr-auto">
       <h1 class="text-xl font-semibold text-zinc-100">My trades</h1>
       <p class="text-xs text-zinc-500">Watch-only · read from Hyperliquid · you make every change yourself</p>
     </div>
+    <button type="button" class="inline-flex items-center gap-1.5 rounded-full ring-1 ring-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-xs font-medium px-3 py-1.5" @click="guide=true" title="When to trade, and how big">
+      <span aria-hidden="true" class="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500/30 text-[10px] font-bold text-indigo-200">?</span> Guide</button>
     {% if addr %}
     <div class="flex items-center gap-1 rounded-full bg-zinc-900 ring-1 ring-zinc-800 pl-3 pr-1 py-1 text-xs">
       <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
@@ -21,6 +23,8 @@
       <span id="w-ind" class="htmx-indicator-spin">↻</span> Sync</button>
     {% endif %}
   </div>
+
+  {% include "_guide.html" %}
 
   {% if not addr %}
   <section class="rounded-2xl border border-zinc-800 bg-gradient-to-br from-indigo-500/10 to-zinc-900/60 p-5 sm:p-6">

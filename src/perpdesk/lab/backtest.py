@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from perpdesk.lab.room import LevelBook
 from perpdesk.lab.sim import Fees, simulate_carry, simulate_fixed, simulate_trail
 from perpdesk.lab.strategies import H4_MS, STRATEGIES, CarryConfig, Strategy
 from perpdesk.timeutil import index_ms
@@ -31,6 +32,7 @@ class LabTrade:
     exit_reason: str
     r: float
     year: int
+    room: str = ""  # ok | caution | block | n/a: room-to-move check at the signal (verdict.room_check)
 
 
 def _log(msg: str) -> None:
@@ -49,7 +51,8 @@ def _funding_at(funding: pd.DataFrame, t_ms: int) -> float:
 
 
 def run_strategy(strat: Strategy, coin: str, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None,
-                 c5m: pd.DataFrame, funding: pd.DataFrame, start_ms: int, fine: Any = None) -> list[LabTrade]:
+                 c5m: pd.DataFrame, funding: pd.DataFrame, start_ms: int, fine: Any = None,
+                 book: Any = None) -> list[LabTrade]:
     from perpdesk.backtest.runner import CoinRun, refine
 
     feat = strat.prepare(c4h, d1, btc_d1)
@@ -95,8 +98,9 @@ def run_strategy(strat: Strategy, coin: str, c4h: pd.DataFrame, d1: pd.DataFrame
                     continue
                 break
             r_val, reason, exit_ms = oc.r_multiple, oc.exit_reason, oc.exit_ms
+        room = book.room(t, e.direction, float(getattr(row, "close")), e.stop, e.tp1).status if book else ""  # noqa: B009
         out.append(LabTrade(strat.name, coin, e.direction, t, exit_ms, reason, float(r_val),
-                            datetime.fromtimestamp(t / 1000, UTC).year))
+                            datetime.fromtimestamp(t / 1000, UTC).year, room))
         flat_until = exit_ms
     return out
 
@@ -122,6 +126,10 @@ def summarize(trades: list[LabTrade], risk_pct: float = 0.5) -> dict[str, Any]:
                          for y in years for d in ("LONG", "SHORT")},
             "coin": {c: block([t.r for t in ts if t.coin == c]) for c in sorted({t.coin for t in ts})},
             "exits": {k: sum(1 for t in ts if t.exit_reason == k) for k in sorted({t.exit_reason for t in ts})},
+            "room": {k: block([t.r for t in ts if t.room == k]) for k in ("ok", "caution", "block", "n/a")},
+            "room_filtered": block([t.r for t in ts if t.room != "block"]),
+            "room_year": {f"{y} {k}": block([t.r for t in ts if t.year == y and t.room == k])
+                          for y in years for k in ("ok", "caution", "block")},
         }
     return by
 
@@ -166,9 +174,10 @@ def run_lab(coins: list[str], start: date, end: date, cache_dir: Path, out_dir: 
         sources[coin] = {**hist.sources, "first_1h": f"{hist.c1h.index[0]:%Y-%m-%d}"}
         last_ms = max(last_ms, int(index_ms(hist.c5m)[-1]))
         fine = minute_loader(coin, cache_dir)
+        book = LevelBook(fr)
         for strat in STRATEGIES.values():
             ts = time.monotonic()
-            got = run_strategy(strat, coin, fr["4h"], fr["1d"], btc_d1, hist.c5m, hist.funding, start_ms, fine)
+            got = run_strategy(strat, coin, fr["4h"], fr["1d"], btc_d1, hist.c5m, hist.funding, start_ms, fine, book)
             trades.extend(got)
             avg = float(np.mean([t.r for t in got])) if got else 0.0
             _log(f"{coin:5s} {strat.name:16s} n={len(got):4d} avgR={avg:+.3f} ({time.monotonic() - ts:.0f}s)")
@@ -206,6 +215,15 @@ def report_lines(s: dict[str, Any]) -> list[str]:
         for c, x in b["coin"].items():
             out.append(f"   coin {c:6s}  {fmt(x)}")
         out.append(f"   exits {b['exits']}")
+        out.append("   room to move at the signal (block = strong level within 0.5R in the way; caution = before TP1):")
+        for k, x in b.get("room", {}).items():
+            if x.get("n"):
+                out.append(f"   room {k:8s}  {fmt(x)}")
+        if b.get("room_filtered"):
+            out.append(f"   if 'block' were skipped: {fmt(b['room_filtered'])}")
+        for y, x in b.get("room_year", {}).items():
+            if x.get("n"):
+                out.append(f"   {y:13s}  {fmt(x)}")
     out.append("== funding_carry (short perp + long spot), per coin:")
     for c, x in s["carry"].items():
         if x.get("n"):

@@ -25,26 +25,55 @@ def _heartbeats(s: Session) -> dict[str, JobHeartbeat]:
     return {h.name: h for h in s.execute(select(JobHeartbeat)).scalars()}
 
 
-def cards(s: Session) -> list[dict[str, Any]]:
+def bot_signals(s: Session, st: Any) -> dict[str, Any]:
+    """coin -> newest pending/open paper trade of an enabled proven bot."""
+    from perpdesk.db.models import AutoTrade
+
+    enabled = {"breakout", *st.lab_bots}
+    out: dict[str, Any] = {}
+    for t in s.execute(select(AutoTrade).where(AutoTrade.mode == "paper", AutoTrade.status.in_(["pending", "open"]))
+                       .order_by(AutoTrade.created_ms.desc())).scalars():
+        if t.setup in enabled and t.coin not in out:
+            out[t.coin] = t
+    return out
+
+
+def card_verdict(v: dict[str, Any] | None, a: Asset, bots: dict[str, Any], st: Any, now: int) -> Any:
+    from perpdesk.auto.report import BOT_INFO
+    from perpdesk.verdict import verdict
+
+    if not v or v.get("error"):
+        return None
+    return verdict(v, bots.get(a.hl_coin or a.symbol), now, st, BOT_INFO)
+
+
+def cards(s: Session, st: Any | None = None) -> list[dict[str, Any]]:
+    from perpdesk.pipeline import now_ms
+
+    st = st or settings_for(s)
+    bots = bot_signals(s, st)
+    now = now_ms()
     favs = list_favorites(s)
     views = {v.asset_id: v for v in s.execute(select(LatestView)).scalars()}
     out = []
     for f in favs:
         v = views.get(f.asset_id)
+        pv = v.payload if v else None
         out.append({"fav": f, "asset": f.asset, "group": f.group.name if f.group else "Favourites",
-                    "v": v.payload if v else None})
+                    "v": pv, "vd": card_verdict(pv, f.asset, bots, st, now)})
     return out
 
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, s: Session = Depends(db)) -> HTMLResponse:
     st = settings_for(s)
-    cs = cards(s)
+    cs = cards(s, st)
+    take_count = sum(1 for c in cs if c["vd"] and c["vd"].take)
     grade_counts = {g: sum(1 for c in cs if c["v"] and c["v"].get("grade") == g) for g in "ABC"}
     sorted_cards = sorted(cs, key=lambda c: (GRADE_ORDER.get((c["v"] or {}).get("grade", "Z"), 9),
                                              -((c["v"] or {}).get("confidence") or 0)))
     return templates.TemplateResponse(request, "dashboard.html", {
-        "cards": cs, "sorted_cards": sorted_cards, "groups": groups(s), "grade_counts": grade_counts,
+        "cards": cs, "sorted_cards": sorted_cards, "take_count": take_count, "groups": groups(s), "grade_counts": grade_counts,
         "hb": _heartbeats(s), "settings": st, "page": "dashboard", **_dashboard_extras(s, st),
     })
 
@@ -83,9 +112,12 @@ def asset_page(asset_id: int, request: Request, s: Session = Depends(db)) -> HTM
     rec = r_stats(live_rs(s, coin=coin))
     st = settings_for(s)
     lev_rows = leverage_scenarios(a, v.payload, st) if v else []
+    from perpdesk.pipeline import now_ms
+
+    vd = card_verdict(v.payload if v else None, a, bot_signals(s, st), st, now_ms())
     return templates.TemplateResponse(request, "asset.html", {
         "a": a, "v": v.payload if v else None, "settings": st, "rec": rec.as_dict(), "page": "asset",
-        "lev_rows": lev_rows,
+        "lev_rows": lev_rows, "vd": vd,
         "timeframes": ["15m", "1h", "4h", "1d", "1w"],
     })
 

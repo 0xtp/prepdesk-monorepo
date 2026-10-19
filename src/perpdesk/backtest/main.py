@@ -70,6 +70,21 @@ def yearly_lines(trades: list[Trade]) -> list[str]:
     return out
 
 
+def room_lines(trades: list[Trade]) -> list[str]:
+    """Out-of-sample avg R by the room-to-move check at the signal, and what skipping 'block' would have done."""
+    by: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for t in trades:
+        if t.period != "train" and t.filled and t.r is not None and t.room:
+            by[(t.setup, t.room)].append(float(t.r))
+            by[(t.setup, "ALL")].append(float(t.r))
+            if t.room != "block":
+                by[(t.setup, "ALL minus block")].append(float(t.r))
+    out = ["OOS + hold-out by room to move (block = strong level within 0.5R in the way; caution = before TP1):"]
+    for (setup, k), v in sorted(by.items()):
+        out.append(f"  {setup:15s} {k:16s} n={len(v):4d} avgR={float(np.mean(v)):+.3f} sumR={float(np.sum(v)):+.1f}")
+    return out
+
+
 def run_backtest(coins: list[str], start: date, end: date, settings: Settings, cache_dir: Path, out_dir: Path,
                  classes: dict[str, str] | None = None, do_ablation: bool = False, write_db: bool = False
                  ) -> dict[str, Any]:
@@ -136,7 +151,7 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
         _log(f"  period {k:8s} n={len(v):5d} avgR={float(np.mean(v)):+.3f}")
     _log(f"ambiguous exits re-checked on 1m candles: {sum(r.refined for r in runs)} "
          f"(result changed for {sum(r.flipped for r in runs)})")
-    for line in yearly_lines(trades):
+    for line in yearly_lines(trades) + room_lines(trades):
         _log(line)
     abl: dict[str, list[dict[str, Any]]] = {}
     if do_ablation:

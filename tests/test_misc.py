@@ -95,10 +95,27 @@ def test_service_gate_lookup_and_take_hint(tmp_path):
         s.add(PlanOutcome(plan_id=p.id, filled=True, exit_reason="tp2", r_multiple=1.0, tp1_hit=True,
                           exit_ms=i + 1, scored_at=datetime.now(UTC)))
     s.flush()
-    assert service.take_hint(s, st, "B").take
+    assert not service.take_hint(s, st, "B").take  # 6 winning trades are luck, not proof
     buckets, err, n = service.calibration_status(s, st)
     assert n == 6 and err == pytest.approx(0.4)
     assert service.calibration_flag(s, st) is not None
+    for i in range(6, 100):
+        p = PlanRow(coin="SOL", asset_class="Large", created_ms=i, expires_ms=i + 1, trading_tf="1h", direction="LONG",
+                    grade="B", setup="trend_pullback", confidence=70, expected_move="UP", entry_type="limit", entry=1,
+                    entry_market=1, zone_lo=1, zone_hi=1, sl=0.9, tp1=1.2, tp2=1.3, runaway=1.1, rr_tp1=2, risk_usd=1,
+                    notional=1, qty=1, leverage=1, win_prob=0.6, status="closed")
+        s.add(p)
+        s.flush()
+        s.add(PlanOutcome(plan_id=p.id, filled=True, exit_reason="sl" if i % 2 else "tp2",
+                          r_multiple=-1.0 if i % 2 else 1.2, tp1_hit=not i % 2, exit_ms=i + 1,
+                          scored_at=datetime.now(UTC)))
+    s.flush()
+    h = service.take_hint(s, st, "B")
+    assert not h.take and "no proven edge" in h.reason  # 100 trades but avg +0.1R is not significant
+    for o in s.query(PlanOutcome).filter(PlanOutcome.r_multiple == -1.0).limit(30):
+        o.r_multiple = 0.5
+    s.flush()
+    assert service.take_hint(s, st, "B").take
     s.close()
 
 

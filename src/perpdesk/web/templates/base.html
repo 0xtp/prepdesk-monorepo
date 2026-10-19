@@ -100,6 +100,13 @@
       const age=Date.now()-t, stale=age>LIMIT; el.classList.toggle('is-stale',stale);
       const s=el.querySelector('.stale-age'); if(s) s.textContent=fmt(age);
     }
+    /* A TAKE is only valid for 30 min after the signal: flip it to SKIP in place once that passes. */
+    for(const el of document.querySelectorAll('[data-take-until]')){
+      const u=Number(el.dataset.takeUntil); if(!u || Date.now()<=u || el.dataset.expired) continue;
+      el.dataset.expired='1';
+      el.querySelectorAll('.verdict-badge').forEach(b=>{b.textContent='SKIP'; b.className=b.className.replace(/bg-emerald-\S+|text-emerald-\S+|ring-emerald-\S+/g,'')+' bg-zinc-800 text-zinc-300 ring-zinc-700'});
+      el.querySelectorAll('.verdict-reason').forEach(r=>{r.className='verdict-reason text-xs text-zinc-400'; r.innerHTML='<b>SKIP:</b> the signal is now over 30 min old. Press ↻ to re-check.'});
+    }
   }
   window.pdStaleCheck=check; check(); setInterval(check,30000);
   document.body.addEventListener('htmx:afterSwap',()=>setTimeout(check,50));

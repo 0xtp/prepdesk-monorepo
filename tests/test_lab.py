@@ -120,3 +120,14 @@ def test_funding_carry_enters_on_high_funding_and_pays_costs():
     assert t.funding > 0.00005 * (hours - 30) and t.net == pytest.approx(t.funding - carry_cost(c))
     assert t.return_on_capital == pytest.approx(t.net / c.capital_per_notional)
     assert simulate_carry(pd.Series(np.full(100, 0.000001), index=idx[:100])) == []
+
+
+def test_room_status_recorded_with_level_book(data):
+    from perpdesk.lab.room import LevelBook
+
+    c5, c4, d1 = data
+    book = LevelBook({"1h": resample(c5, "1h"), "4h": c4, "1d": d1, "1w": resample(c5, "1w")})
+    tr = run_strategy(STRATEGIES["trend_follow"], "X", c4, d1, d1, c5, pd.DataFrame(), 0, book=book)
+    assert tr and all(t.room in ("ok", "caution", "block", "n/a") for t in tr)
+    s = summarize(tr)["trend_follow"]
+    assert sum(b.get("n", 0) for b in s["room"].values()) == len(tr)

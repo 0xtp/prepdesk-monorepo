@@ -20,9 +20,43 @@
 {% endif %}
 {%- endmacro %}
 {% macro conf_bar(c) -%}
-<div class="flex items-center gap-2" title="Confidence {{ c }}/100: how strongly timeframes and factors agree on the direction (60+ = grade B)">
-  <span class="text-[11px] text-zinc-500 w-16 shrink-0">Confidence</span>
+<div class="flex items-center gap-2" title="Signal strength {{ c }}/100: how strongly timeframes and factors agree on the direction. It is NOT the chance of winning: high-strength general signals still lost money in testing.">
+  <span class="text-[11px] text-zinc-500 shrink-0">Signal strength <span class="text-zinc-600">(not win chance)</span></span>
   <div class="h-1.5 flex-1 rounded-full bg-zinc-800 overflow-hidden"><div class="h-full rounded-full bg-indigo-400" style="width: {{ c }}%"></div></div>
   <span class="text-xs tabular-nums text-zinc-400 w-10 text-right">{{ c }}/100</span>
+</div>
+{%- endmacro %}
+
+{% macro verdict_badge(vd, big=False) -%}
+{% if vd and vd.take %}<span class="verdict-badge ml-auto {{ 'text-xs px-2' if big else 'text-[11px] px-1.5' }} font-bold rounded py-0.5 bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/50" title="{{ vd.reason }}">TAKE</span>
+{%- else %}<span class="verdict-badge ml-auto {{ 'text-xs px-2' if big else 'text-[11px] px-1.5' }} font-bold rounded py-0.5 bg-zinc-800 text-zinc-300 ring-1 ring-zinc-700" title="{{ vd.reason if vd else '' }}">SKIP</span>{% endif %}
+{%- endmacro %}
+
+{% macro verdict_reason(vd) -%}
+{% if vd %}<p class="verdict-reason text-xs {{ 'text-emerald-200' if vd.take else 'text-zinc-400' }}"><b>{{ 'TAKE' if vd.take else 'SKIP' }}:</b> {{ vd.reason }}</p>
+{% for c in vd.cautions %}<p class="text-xs text-amber-300">⚠ Caution: {{ c }} — half size or skip.</p>{% endfor %}{% endif %}
+{%- endmacro %}
+
+{% macro sr_line(vd) -%}
+{% if vd and (vd.support or vd.resistance) %}
+<div class="text-[11px] text-zinc-400 tabular-nums" title="Nearest strong levels (tested 2+ times, or prior day/week highs and lows). R = distance in units of the stop.">
+  {% if vd.support %}Next support <span class="text-emerald-300">{{ vd.support.price|px }}</span> ({{ '%+.1f'|format(vd.support.pct*100) }}%{% if vd.support.r is not none %}, {{ '%.1f'|format(vd.support.r) }}R{% endif %}){% else %}No strong support nearby{% endif %}
+  · {% if vd.resistance %}next resistance <span class="text-rose-300">{{ vd.resistance.price|px }}</span> ({{ '%+.1f'|format(vd.resistance.pct*100) }}%{% if vd.resistance.r is not none %}, {{ '%.1f'|format(vd.resistance.r) }}R{% endif %}){% else %}no strong resistance nearby{% endif %}
+</div>{% endif %}
+{%- endmacro %}
+
+{% macro bot_plan(b) -%}
+<div class="rounded-lg bg-emerald-500/10 ring-1 ring-emerald-400/40 p-2.5 flex flex-col gap-1.5">
+  <div class="flex items-center gap-2 text-xs"><span class="font-semibold text-emerald-200">Proven: {{ b.label }}</span>{{ dir_badge(b.direction) if b.direction in ('LONG','SHORT') }}<span class="ml-auto text-zinc-400">{{ b.age_min }} min ago</span></div>
+  {% if b.exit_model == 'carry' %}
+  <div class="text-xs text-zinc-300">Hedged: short the perp and hold the same amount of spot · {{ b.note }}</div>
+  {% else %}
+  <dl class="grid grid-cols-3 gap-2 text-xs tabular-nums">
+    <div><dt class="text-zinc-500">Entry</dt><dd class="text-zinc-100 font-semibold">{{ b.entry|px }}</dd></div>
+    <div><dt class="text-zinc-500">Stop</dt><dd class="text-rose-200 font-semibold">{{ b.sl|px }}</dd></div>
+    <div><dt class="text-zinc-500">{{ 'Exit' if b.exit_model == 'trail' else 'TP1 / TP2' }}</dt><dd class="text-emerald-200 font-semibold">{% if b.exit_model == 'trail' %}trailing stop, no target{% else %}{{ b.tp1|px }} / {{ b.tp2|px }}{% endif %}</dd></div>
+  </dl>
+  <p class="text-[11px] text-zinc-400">Use this stop. Size it so a stop-out costs 1–2% of your account.</p>
+  {% endif %}
 </div>
 {%- endmacro %}

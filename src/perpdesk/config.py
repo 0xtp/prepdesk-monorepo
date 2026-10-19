@@ -52,6 +52,8 @@ RUNTIME_KEYS = (
     "auto_breakout_lookback",
     "auto_max_entry_delay_min",
     "auto_max_entry_drift_r",
+    "room_check_filter",
+    "take_min_live_trades",
     "lab_bots",
     "lab_coins",
     "llm_credit_usd",
@@ -185,6 +187,11 @@ class Settings(BaseSettings):
     # price has not moved more than AUTO_MAX_ENTRY_DRIFT_R × the stop distance in the trade's direction.
     auto_max_entry_delay_min: int = Field(240, ge=5, le=240)
     auto_max_entry_drift_r: float = Field(0.3, ge=0, le=2)
+    # Skip a proven-bot signal when a strong support/resistance sits within 0.5R in the trade's way. Off by default:
+    # the 2021-2026 backtest did not show it improving results (see docs/PHASE2.md, "Room check").
+    room_check_filter: bool = False
+    # The general (composite) plan only shows TAKE after this many live trades with a positive, significant edge.
+    take_min_live_trades: int = Field(100, ge=30)
     # Strategy-lab bots paper-traded alongside the breakout bot (each with its own AUTO_PAPER_EQUITY balance).
     # Defaults are the bots that were positive in the 2021+ backtest; breakdown_short and range_revert lost money.
     lab_bots: Annotated[list[str], NoDecode] = ["trend_follow", "funding_carry"]

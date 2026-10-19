@@ -90,15 +90,30 @@ class TakeHint:
 
 
 def take_hint(s: Session, settings: Settings, grade: str) -> TakeHint:
+    """TAKE for the general (composite) plan needs either a setup that passed every backtest gate (grade A) or a
+    live record of take_min_live_trades+ trades whose average R is positive and statistically solid (t > 2).
+    A few dozen lucky trades are not enough: that rule once flipped every grade C card to TAKE."""
     if grade == "A":
         return TakeHint(True, "grade A: setup passed every statistical gate")
     rs = live_rs(s, grade=grade)
-    if len(rs) < settings.min_sample_for_stats:
-        return TakeHint(False, f"grade {grade} has {len(rs)}/{settings.min_sample_for_stats} live trades — not proven yet")
+    need = settings.take_min_live_trades
+    if len(rs) < need:
+        return TakeHint(False, f"grade {grade} has {len(rs)}/{need} live trades — not proven yet")
     st = r_stats(rs)
-    if st.avg_r > 0:
-        return TakeHint(True, f"grade {grade} live expectancy {st.avg_r:+.2f}R over {st.n} trades")
-    return TakeHint(False, f"grade {grade} live expectancy {st.avg_r:+.2f}R over {st.n} trades")
+    t_stat = _t_stat(rs)
+    if st.avg_r > 0 and t_stat > 2:
+        return TakeHint(True, f"grade {grade} live: {st.avg_r:+.2f}R avg over {st.n} trades (t={t_stat:.1f})")
+    return TakeHint(False, f"grade {grade} live: {st.avg_r:+.2f}R avg over {st.n} trades (t={t_stat:.1f}), "
+                           "no proven edge")
+
+
+def _t_stat(rs: list[float]) -> float:
+    n = len(rs)
+    if n < 2:
+        return 0.0
+    m = sum(rs) / n
+    var = sum((x - m) ** 2 for x in rs) / (n - 1)
+    return m / (var ** 0.5 / n ** 0.5) if var > 0 else (float("inf") if m > 0 else 0.0)
 
 
 def live_warnings(s: Session, settings: Settings, coin: str, confidence: int) -> list[str]:

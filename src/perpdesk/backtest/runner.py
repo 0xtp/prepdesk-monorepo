@@ -32,6 +32,7 @@ from perpdesk.analysis.types import TF_MS, AssetMeta, MarketSnapshot, SetupSigna
 from perpdesk.plan import Plan, PlanConfig, RiskInputs, build_plan
 from perpdesk.timeutil import index_ms
 from perpdesk.tracking.scorer import Outcome, PlanSpec, score
+from perpdesk.verdict import room_check
 
 LOOKBACK = {"1w": 260, "1d": 420, "4h": 700, "1h": 1500, "15m": 1000}
 MONTH_MS = 30 * 86_400_000
@@ -87,6 +88,7 @@ class BarRecord:
     plans: dict[str, Plan]  # "composite" | "limit" | "market"
     funding: float
     abs_score: float = 0.0
+    room: dict[str, str] = field(default_factory=dict)  # plan key -> room-to-move status at this bar
 
 
 @dataclass
@@ -106,6 +108,7 @@ class Trade:
     exit_reason: str
     end_ms: int
     period: str = "train"
+    room: str = ""
 
 
 @dataclass
@@ -130,7 +133,10 @@ def pass1(coin: str, asset_class: str, meta: AssetMeta, frames: dict[str, pd.Dat
           btc_frames: dict[str, pd.DataFrame] | None, funding: pd.DataFrame | None, fear_greed: pd.DataFrame | None,
           cme: pd.DataFrame | None, ecfg: EngineConfig, pcfg: PlanConfig, start_ms: int | None = None,
           stride: int = 1, progress: Callable[[str], None] | None = None) -> list[BarRecord]:
+    from perpdesk.lab.room import LevelBook
+
     fr = Frames.build(frames)
+    book = LevelBook(frames)
     bfr = Frames.build(btc_frames) if btc_frames else None
     tr_tf = ecfg.trading_tf
     closes = fr.close_ms[tr_tf]
@@ -187,8 +193,11 @@ def pass1(coin: str, asset_class: str, meta: AssetMeta, frames: dict[str, pd.Dat
         if "composite" not in plans:
             continue
         g = plans["composite"].grade
+        # same 1h-based levels the live card shows, whatever the trading timeframe (lab/room.py)
+        lv = book.levels_at(t_ms, snap.price)
+        room = {k: room_check(p.direction, p.entry, p.sl, p.tp1, lv).status for k, p in plans.items()}
         out.append(BarRecord(t_ms, a.direction, a.confidence, a.near_zero, len(a.flags), g, signals, plans, cur_f or 0.0,
-                             abs(a.score)))
+                             abs(a.score), room))
         if progress and len(out) % 1000 == 0:
             progress(f"{coin}: {len(out)} bars analysed ({time.monotonic() - t_start:.0f}s)")
     return out
@@ -237,9 +246,11 @@ def simulate(run: CoinRun, setup: str, param_idx: int, pcfg: PlanConfig) -> list
     for rec in run.records:
         if rec.t_ms < flat_until:
             continue
+        key = "composite"
         if setup == "composite":
             plan = rec.plans.get("composite")
         else:
+            key = "market" if setup == "breakout" else "limit"
             d = rec.signals.get(setup, [None])[param_idx]
             if d is None or d != rec.direction:
                 continue
@@ -260,7 +271,7 @@ def simulate(run: CoinRun, setup: str, param_idx: int, pcfg: PlanConfig) -> list
         end = out.exit_ms or rec.t_ms
         trades.append(Trade(run.coin, run.asset_class, setup, param_idx, rec.direction, rec.t_ms, rec.confidence,
                             rec.grade_ex_gate, plan.rr_tp1, out.filled, out.r_multiple, out.tp1_before_sl,
-                            out.exit_reason, end))
+                            out.exit_reason, end, room=rec.room.get(key, "")))
         flat_until = end
     return trades
 

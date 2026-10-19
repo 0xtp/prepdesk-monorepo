@@ -1,16 +1,17 @@
-{% from "_macros.html" import dir_badge, grade_chip %}
-<div id="plan-panel" class="flex flex-col gap-4">
+{% from "_macros.html" import dir_badge, grade_chip, verdict_badge, verdict_reason, sr_line, bot_plan %}
+<div id="plan-panel" class="flex flex-col gap-4"{% if vd and vd.take_until_ms %} data-take-until="{{ vd.take_until_ms }}"{% endif %}>
 {% if v and not v.error %}
 {% set p = v.plan %}
 <div class="flex items-center gap-2 flex-wrap">
   <span class="text-lg font-semibold text-zinc-100">{{ a.symbol }}{{ '' if p.spot_only else '-PERP' }}</span>
   {{ dir_badge(p.direction) }} {{ grade_chip(p.grade) }}
   <span class="text-sm text-zinc-400">{{ p.setup_label }}</span>
-  {% if v.take %}<span class="ml-auto text-xs font-semibold rounded px-2 py-0.5 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30" title="{{ v.take_reason }}">TAKE</span>
-  {% else %}<span class="ml-auto text-xs font-semibold rounded px-2 py-0.5 bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20" title="{{ v.take_reason }}">WATCH ONLY</span>{% endif %}
+  {{ verdict_badge(vd, True) }}
 </div>
-<p class="text-xs text-zinc-500 -mt-2">{{ v.take_reason }}</p>
-{% if not v.take %}<div class="rounded-lg bg-amber-500/10 ring-1 ring-amber-500/20 text-amber-100 text-xs px-3 py-2">Not a trade signal. This general analysis ({{ p.setup_label }}, grade {{ p.grade }}) lost money in the 2021–2026 backtests, so treat the direction as context only. Trade only the <a href="/" class="underline">Proven signals</a> on the dashboard.</div>{% endif %}
+{{ verdict_reason(vd) }}
+{% if vd and vd.take and vd.bot %}{{ bot_plan(vd.bot) }}{% endif %}
+{{ sr_line(vd) }}
+{% if not (vd and vd.take and not vd.bot) %}<div class="rounded-lg bg-zinc-800/60 ring-1 ring-zinc-700 text-zinc-300 text-xs px-3 py-2">{% if vd and vd.take %}Below is the general analysis ({{ p.setup_label }}, grade {{ p.grade }}) for context only. Trade the proven signal above, with its stop.{% else %}Not a trade. The general analysis below ({{ p.setup_label }}, grade {{ p.grade }}) lost money in the 2021–2026 backtests, so treat its direction as context only. Only TAKE cards are trades.{% endif %}</div>{% endif %}
 {% if p.spot_only %}<div class="rounded-lg bg-amber-500/10 text-amber-300 text-sm px-3 py-2">Spot view only, no perp market. No leverage suggested.</div>{% endif %}
 {% if v.flags %}
 <ul class="rounded-lg bg-amber-500/10 ring-1 ring-amber-500/20 text-amber-200 text-sm px-3 py-2 space-y-1">

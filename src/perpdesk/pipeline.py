@@ -448,7 +448,7 @@ def build_view(a: Asset, an: Analysis, p: Plan, settings: Settings, status: dict
         "group_scores": an.group_scores,
         "top_for": [f"{f.name} ({f.tf}): {f.reason}" for f in an.top_for],
         "top_against": [f"{f.name} ({f.tf}): {f.reason}" for f in an.top_against],
-        "levels": sorted({(round(lv.price, 10), lv.kind, lv.label) for lv in an.levels if lv.kind != "ema"},
+        "levels": sorted({(round(lv.price, 10), lv.kind, lv.label, lv.strength) for lv in an.levels if lv.kind != "ema"},
                          key=lambda x: -x[0]),
         "range": {"high": an.range.high, "low": an.range.low} if an.range else None,
         "cme_gaps": [{"lo": g.gap_low, "hi": g.gap_high, "opened": g.opened.isoformat(), "filled": g.filled,

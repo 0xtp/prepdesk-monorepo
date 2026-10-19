@@ -17,7 +17,15 @@ from perpdesk.analysis.indicators import ema
 from perpdesk.assets import favorites as fav
 from perpdesk.assets.registry import search as registry_search
 from perpdesk.db.models import Asset, JobHeartbeat, LatestView, PlanRow, UserTrade
-from perpdesk.pipeline import Context, analyse_asset, dex_frames, leverage_scenarios, load_context, perp_frames
+from perpdesk.pipeline import (
+    Context,
+    analyse_asset,
+    dex_frames,
+    leverage_scenarios,
+    load_context,
+    now_ms,
+    perp_frames,
+)
 from perpdesk.sources.hyperliquid import Hyperliquid
 from perpdesk.store import load_candles, persist_health, settings_for
 from perpdesk.timeutil import index_ms
@@ -44,8 +52,13 @@ async def _context(s: Session) -> Context:
 def _card(request: Request, s: Session, a: Asset) -> HTMLResponse:
     v = s.get(LatestView, a.id)
     f = next((x for x in fav.list_favorites(s) if x.asset_id == a.id), None)
-    c = {"fav": f, "asset": a, "group": f.group.name if f and f.group else "Favourites", "v": v.payload if v else None}
-    return templates.TemplateResponse(request, "_card.html", {"c": c, "settings": settings_for(s)})
+    from perpdesk.web.routes.pages import bot_signals, card_verdict
+
+    st = settings_for(s)
+    pv = v.payload if v else None
+    c = {"fav": f, "asset": a, "group": f.group.name if f and f.group else "Favourites", "v": pv,
+         "vd": card_verdict(pv, a, bot_signals(s, st), st, now_ms())}
+    return templates.TemplateResponse(request, "_card.html", {"c": c, "settings": st})
 
 
 @router.post("/api/assets/{asset_id}/refresh", response_class=HTMLResponse)
@@ -117,8 +130,11 @@ async def recompute_plan(asset_id: int, request: Request, margin: float = Form(.
     res = await analyse_asset(s, _hl(s), a, await _context(s), st, margin=margin, risk_usd=r_usd, risk_pct=r_pct,
                               save=False)
     lev_rows = leverage_scenarios(a, res.view, st, margin) if res.view else []
+    from perpdesk.web.routes.pages import bot_signals, card_verdict
+
+    vd = card_verdict(res.view, a, bot_signals(s, st), st, now_ms())
     return templates.TemplateResponse(request, "_plan.html", {"v": res.view, "a": a, "settings": st,
-                                                              "lev_rows": lev_rows,
+                                                              "lev_rows": lev_rows, "vd": vd,
                                                               "inputs": {"margin": margin, "risk_usd": risk_usd,
                                                                          "risk_pct": risk_pct}})
 
