@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -131,6 +132,14 @@ async def close_client() -> None:
         _client = None
 
 
+_SECRET_URL = re.compile(r"bot\d+:[\w-]+")
+
+
+def _redact(msg: str) -> str:
+    """Never let a Telegram bot token (it sits in the URL path) reach logs or the health table."""
+    return _SECRET_URL.sub("bot***", msg)
+
+
 async def request_json(name: str, method: str, url: str, *, params: dict[str, Any] | None = None,
                        json: Any = None, headers: dict[str, str] | None = None, retries: int = 2,
                        limiter: TokenBucket | None = None, weight: float = 1.0) -> Any:
@@ -151,14 +160,14 @@ async def request_json(name: str, method: str, url: str, *, params: dict[str, An
                 await asyncio.sleep(min(delay, 20))
                 continue
             if r.status_code >= 400:
-                last = f"HTTP {r.status_code}: {r.text[:200]}"
+                last = _redact(f"HTTP {r.status_code}: {r.text[:200]}")
                 record(name, False, ms, last)
                 raise SourceError(f"{name}: {last}")
             record(name, True, ms)
             return r.json()
         except (httpx.TransportError, httpx.TimeoutException) as e:
             ms = int((time.perf_counter() - t0) * 1000)
-            last = f"{type(e).__name__}: {e}"
+            last = _redact(f"{type(e).__name__}: {e}")
             record(name, False, ms, last)
             if attempt < retries:
                 await asyncio.sleep(min(0.5 * (2 ** attempt) + random.random() * 0.5, 5))

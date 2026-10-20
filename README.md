@@ -164,6 +164,21 @@ Paste your public Hyperliquid address (Phantom: your Ethereum/EVM address) on **
 - **History:** fills are rebuilt into round-trip trades. Each trade shows net P&L after exchange fees, front-end (builder) fees such as Phantom's, and funding. It also shows the exit type (target, stop, manual or liquidated) and R, measured against the first stop seen.
 - **Matching to signals:** each trade is matched to the plan that was live when you opened it (the latest plan for that coin within the 12 hours before). The page then compares trades that followed the app with trades that went against it, by coin and by grade. Stored in `wallet_fills`, `wallet_funding` and `wallet_trades`.
 
+### Telegram alerts
+1. Create a bot with @BotFather and put its token in Vercel as `TELEGRAM_BOT_TOKEN` (never in chat). Redeploy.
+2. Settings → **Connect Telegram**: sets the webhook and shows a one-time link; press Start in Telegram. The bot then
+   only talks to that chat; anyone else gets no reply. (With `AUTH_ENABLED=false` anyone who can open Settings could
+   re-link it, so turn auth on for a public URL.)
+3. What arrives (`src/perpdesk/alerts/notify.py`, run after every auto-trader call, each message sent once):
+   **TAKE** signals with entry band, stop, targets, a size for `ALERT_ACCOUNT_USD` × `ALERT_RISK_PCT`, and the time
+   the signal expires; the result when a TAKE trade closes; bot pauses; the scheduler stopping or recovering; your own
+   positions opening or closing; a daily summary at `ALERT_DAILY_HOUR` (`ALERT_TZ`). Nothing in
+   `ALERT_QUIET_HOURS` except pauses.
+4. Commands: `/status`, `/summary`, `/check SOL`. The bot has no trading commands.
+
+Every paper trade is tagged at entry with whether the coin card would have shown TAKE (and why not). The Auto page
+shows each bot's results three ways: all trades, TAKE only, and skipped by the filters.
+
 ### Live prices
 
 Dashboard cards, the asset page header and chart, and the My trades mark price update in the browser about 3 seconds after the page opens and then every 20 seconds, without reloading. Polling pauses while the tab is hidden. Only the current price and 24h change move: entry, stop, targets and liquidation stay as computed until the next analysis. The prices come from `/api/prices` (Hyperliquid contexts cached for about 20 s; DEX prices for 60 s).

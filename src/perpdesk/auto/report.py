@@ -65,7 +65,17 @@ def _bot_row(s: Session, settings: Settings, bot: str, rows: list[AutoTrade], no
         "open": sum(1 for t in rows if t.status in ("pending", "open")),
         "halted": h["reason"] if h else ("daily loss limit" if state.day_halted(s, now_ms, bot) else None),
         "expect": exp.get(bot),
+        "split": {"all": _rstats(closed), "take": _rstats([t for t in closed if t.take]),
+                  "skip": _rstats([t for t in closed if t.take is False])},
     }
+
+
+def _rstats(closed: list[AutoTrade]) -> dict[str, Any]:
+    """Closed-trade results for one slice: all bot trades, the ones the card showed as TAKE, the ones it skipped."""
+    rs = [t.r_multiple for t in closed if t.r_multiple is not None]
+    pnl = sum(t.pnl_usd or 0.0 for t in closed)
+    return {"n": len(closed), "avg_r": sum(rs) / len(rs) if rs else None, "sum_r": sum(rs), "pnl": pnl,
+            "win": sum(1 for t in closed if (t.pnl_usd or 0) > 0) / len(closed) if closed else None}
 
 
 def build(s: Session, settings: Settings, now_ms: int) -> dict[str, Any]:

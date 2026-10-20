@@ -59,6 +59,12 @@
           <div><dt class="text-zinc-500">Win · avg</dt><dd class="text-zinc-200">{% if b.win_rate is not none %}{{ (b.win_rate*100)|round|int }}%{% if b.avg_r is not none %} · {{ '%+.2f'|format(b.avg_r) }}R{% endif %}{% else %}–{% endif %}</dd></div>
           <div><dt class="text-zinc-500">Drawdown</dt><dd class="{{ 'text-amber-300' if b.dd_pct > st.auto_max_drawdown_pct/2 else 'text-zinc-200' }}">{{ '%.1f'|format(b.dd_pct) }}%</dd></div>
         </dl>
+        {% set sp = b.split %}
+        <div class="grid grid-cols-3 gap-2 text-[11px] tabular-nums" title="All = every trade the bot took. TAKE = the ones the coin card showed as TAKE (what you would copy). Skipped = trades the card filters ruled out (⚠ warnings, weak setup). Over time this shows whether the filters help.">
+          {% for key, lbl, cls in [('all','All trades','text-zinc-300'),('take','TAKE only','text-emerald-300'),('skip','Skipped by filters','text-zinc-400')] %}{% set x = sp[key] %}
+          <div class="rounded-lg bg-zinc-950/60 px-2 py-1.5"><div class="text-zinc-500">{{ lbl }}</div><div class="{{ cls }}">{{ x.n }} closed{% if x.avg_r is not none %} · {{ '%+.2f'|format(x.avg_r) }}R{% endif %}</div><div class="text-zinc-500">{{ money(x.pnl) if x.n else '–' }}</div></div>
+          {% endfor %}
+        </div>
         <div class="rounded-lg bg-zinc-950/60 px-3 py-2 text-[11px] text-zinc-400">
           {% if b.expect %}<span class="font-semibold {{ 'text-emerald-400' if b.expect.verdict == 'positive' else ('text-rose-400' if b.expect.verdict == 'negative' else 'text-zinc-400') }}">{{ {'positive':'✓ Profitable in backtest','negative':'✗ Lost money in backtest'}.get(b.expect.verdict, 'Backtest') }}</span> <span class="text-zinc-500">· {{ b.expect.period }}</span><br>{{ b.expect.text }}
           {% else %}<span class="text-zinc-500">Backtest 2021–now: running, results will appear here.</span>{% endif %}
@@ -90,6 +96,7 @@
           <span class="text-base font-semibold text-zinc-100">{{ t.coin }}</span>{{ side(t.direction) }}
           <span class="rounded px-1.5 py-0.5 text-[10px] bg-zinc-800 text-zinc-400">{{ r.labels.get(t.setup, {}).get('label', t.setup) }}</span>
           {% if t.exit_model != 'carry' %}<span class="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-zinc-800 text-zinc-300">{{ t.leverage }}x</span>{% endif %}
+          {% if t.take %}<span class="rounded px-1.5 py-0.5 text-[10px] font-bold bg-emerald-500/15 text-emerald-300">TAKE</span>{% elif t.take is sameas false %}<span class="rounded px-1.5 py-0.5 text-[10px] bg-zinc-800 text-zinc-400" title="{{ t.take_reason }}">skipped by filters</span>{% endif %}
           <span class="rounded px-1.5 py-0.5 text-[10px] {{ 'bg-amber-500/15 text-amber-300' if t.status == 'pending' else 'bg-indigo-500/15 text-indigo-300' }}">{{ 'waiting for fill' if t.status == 'pending' else ('TP1 hit · stop at break-even' if t.tp1_hit else ('trailing' if t.exit_model == 'trail' else ('collecting funding' if t.exit_model == 'carry' else 'open'))) }}</span>
           <span class="ml-auto text-xs tabular-nums text-zinc-400">now {% if t.asset_id %}<span data-live-price="{{ t.asset_id }}" class="text-zinc-100">–</span>{% else %}–{% endif %}</span>
         </div>

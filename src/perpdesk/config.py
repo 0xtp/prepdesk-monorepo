@@ -53,6 +53,17 @@ RUNTIME_KEYS = (
     "auto_max_entry_delay_min",
     "auto_max_entry_drift_r",
     "room_check_filter",
+    "breakout_short_take",
+    "alert_account_usd",
+    "alert_risk_pct",
+    "alert_tz",
+    "alert_quiet_hours",
+    "alert_daily_hour",
+    "alerts_take",
+    "alerts_closes",
+    "alerts_health",
+    "alerts_wallet",
+    "alerts_general_flips",
     "take_min_live_trades",
     "lab_bots",
     "lab_coins",
@@ -167,7 +178,20 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_allowed_user_ids: Annotated[list[int], NoDecode] = []
     telegram_chat_id: str = ""
-    telegram_webhook_secret: str = ""
+    telegram_webhook_secret: str = ""  # empty = derived from the bot token
+    # Alerts (alerts/notify.py). Account size and risk only shape the suggested size in each TAKE alert.
+    alert_account_usd: float | None = Field(None, gt=0)
+    alert_risk_pct: float = Field(1.0, gt=0, le=5)
+    alert_tz: str = "UTC"  # IANA name (Asia/Kolkata) or a UTC offset (+05:30)
+    alert_quiet_hours: str = ""  # local "HH-HH", e.g. 01-07; nothing but kill-switch/halt alerts is sent then
+    alert_daily_hour: int | None = Field(8, ge=0, le=23)  # local hour for the daily summary; empty = off
+    alerts_take: bool = True  # TAKE signals from the proven paper bots
+    alerts_closes: bool = True  # a TAKE trade hit its target or stop; bot paused / halted
+    alerts_health: bool = True  # scheduler stopped running
+    alerts_wallet: bool = True  # your own Hyperliquid positions opened / closed
+    alerts_general_flips: bool = False  # old alert: general-analysis direction flips (those signals lost money)
+    # Breakout SHORT lost money in 2024-2026 in the backtest: the bot keeps paper-trading it, cards show SKIP.
+    breakout_short_take: bool = False
 
     # --- Phase 2: auto-trading (paper now; live is not built yet) ---
     # signals = no auto trades; paper = simulated trades against live prices, no keys, no orders.
@@ -226,6 +250,29 @@ class Settings(BaseSettings):
     @classmethod
     def _ids(cls, v: Any) -> Any:
         return [int(x) for x in _csv(v)] if v not in (None, "") else []
+
+    @field_validator("alert_tz")
+    @classmethod
+    def _tz(cls, v: str) -> str:
+        from perpdesk.alerts.clock import parse_tz
+
+        v = (v or "UTC").strip()
+        if parse_tz(v) is None:
+            raise ValueError("ALERT_TZ must be an IANA name like Asia/Kolkata or an offset like +05:30")
+        return v
+
+    @field_validator("alert_quiet_hours")
+    @classmethod
+    def _quiet(cls, v: str) -> str:
+        v = (v or "").strip()
+        if v and not re.fullmatch(r"([01]?\d|2[0-3])-([01]?\d|2[0-3])", v):
+            raise ValueError("ALERT_QUIET_HOURS must look like 01-07 (local hours, from-to), or be empty")
+        return v
+
+    @field_validator("alert_account_usd", "alert_daily_hour", mode="before")
+    @classmethod
+    def _blank_none(cls, v: Any) -> Any:
+        return None if v in ("", "none", "None") else v
 
     @field_validator("watch_wallet", mode="before")
     @classmethod

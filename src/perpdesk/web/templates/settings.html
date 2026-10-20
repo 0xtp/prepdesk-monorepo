@@ -5,6 +5,33 @@
   <h1 class="text-xl font-semibold text-zinc-100">Settings</h1>
   {% if saved %}<div class="rounded-lg bg-emerald-500/10 text-emerald-300 text-sm px-3 py-2">{{ 'Overrides cleared; using environment values.' if saved == 'reset' else 'Saved.' }}</div>{% endif %}
   {% if error %}<div class="rounded-lg bg-rose-500/10 text-rose-300 text-sm px-3 py-2">Not saved: {{ error }}</div>{% endif %}
+  <section id="telegram" class="rounded-xl border border-sky-500/30 bg-sky-500/[0.04] p-4 flex flex-col gap-3 text-sm">
+    <div class="flex flex-wrap items-center gap-2">
+      <h2 class="text-sm font-semibold text-sky-200">Telegram alerts</h2>
+      {% if tg.linked or tg.env_chat %}<span class="rounded-full bg-emerald-500/15 text-emerald-300 text-[11px] px-2 py-0.5">● linked</span>
+      {% elif tg.configured %}<span class="rounded-full bg-amber-500/15 text-amber-300 text-[11px] px-2 py-0.5">token set · chat not linked</span>
+      {% else %}<span class="rounded-full bg-zinc-800 text-zinc-400 text-[11px] px-2 py-0.5">not set up</span>{% endif %}
+    </div>
+    {% if tg_msg %}<p class="rounded-lg bg-sky-500/10 text-sky-100 text-xs px-3 py-2">{{ tg_msg }}</p>{% endif %}
+    {% if not tg.configured %}
+    <ol class="list-decimal ml-5 text-xs text-zinc-300 space-y-1">
+      <li>In Vercel → Project → Settings → Environment Variables, add <code class="text-sky-200">TELEGRAM_BOT_TOKEN</code> (from @BotFather). Never paste it in chat or screenshots.</li>
+      <li>Redeploy, then come back here and press <b>Connect Telegram</b>.</li>
+    </ol>
+    {% else %}
+    <div class="flex flex-wrap gap-2">
+      <form method="post" action="/telegram/connect"><button class="rounded-md bg-sky-500 hover:bg-sky-400 text-white px-3 py-1.5 text-xs font-medium">{{ 'Re-connect' if tg.linked else 'Connect Telegram' }}</button></form>
+      {% if tg.linked or tg.env_chat %}
+      <form method="post" action="/telegram/test"><button class="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-800">Send test + summary</button></form>
+      {% endif %}
+      {% if tg.linked %}<form method="post" action="/telegram/unlink"><button class="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-rose-300 hover:bg-zinc-800">Unlink</button></form>{% endif %}
+    </div>
+    {% if tg.code and tg.bot %}
+    <p class="text-xs text-zinc-300">Open <a class="underline text-sky-300 break-all" href="https://t.me/{{ tg.bot }}?start={{ tg.code }}" target="_blank" rel="noopener">t.me/{{ tg.bot }}?start=…</a> on your phone and press <b>Start</b> (or send the bot <code>{{ tg.code }}</code>). The code works once, for 15 minutes. The bot then only talks to that chat.</p>
+    {% endif %}
+    {% endif %}
+    <p class="text-[11px] text-zinc-500">Alerts: TAKE signals (≈ within 5 min of a 4h close), when a TAKE trade closes, bot pauses, the scheduler stopping, your own position changes, and a daily summary. Read-only: the bot can't trade. Tune them below: ALERT_ACCOUNT_USD, ALERT_RISK_PCT, ALERT_TZ (e.g. Asia/Kolkata or +05:30), ALERT_QUIET_HOURS (e.g. 01-07), ALERT_DAILY_HOUR, ALERTS_*.</p>
+  </section>
   <div class="grid gap-5 lg:grid-cols-2">
     <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
       <h2 class="text-sm font-semibold text-zinc-200 mb-1">Weights and risk defaults</h2>
@@ -32,7 +59,7 @@
       </div>
       <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-xs">
         <h2 class="text-sm font-semibold text-zinc-200 mb-2">Scheduled jobs</h2>
-        {% for name in ['tick','daily'] %}{% set h = hb.get(name) %}
+        {% for name in ['tick','auto','daily'] %}{% set h = hb.get(name) %}
         <p class="{{ 'text-zinc-300' if h and h.ok else 'text-amber-300' }}">{{ name }}: {% if h %}{{ h.last_run.isoformat()|ago }} · {{ h.duration_ms }} ms · {{ h.detail }}{% else %}never run — set up the scheduler (README → Scheduling){% endif %}</p>{% endfor %}
       </div>
       <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 overflow-x-auto">

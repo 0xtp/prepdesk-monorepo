@@ -135,6 +135,45 @@ def bot_view(t: Any, labels: dict[str, Any]) -> dict[str, Any]:
             "age_min": None}
 
 
+BREAKOUT_SHORT_WEAK = "breakout shorts lost money in 2024–2026 in the backtest (still paper-tracked, not a trade)"
+
+
+def blocking_flags(v: dict[str, Any] | None, direction: str) -> dict[str, str]:
+    """Market-wide warnings on the card that also rule out a bot signal (direction-tied ones only if same way)."""
+    flags = {f.get("code"): f.get("reason", "") for f in (v or {}).get("flags") or []}
+    return {k: x for k, x in flags.items()
+            if k in MARKET_FLAGS or (k in DIRECTION_FLAGS and (v or {}).get("direction") == direction)}
+
+
+def bot_rule(bot: Any, settings: Settings) -> str | None:
+    """A reason this bot's signals are never TAKE, if any."""
+    if getattr(bot, "setup", "") == "breakout" and getattr(bot, "direction", "") == "SHORT" \
+            and not settings.breakout_short_take:
+        return BREAKOUT_SHORT_WEAK
+    return None
+
+
+def entry_tag(v: dict[str, Any] | None, bot: Any, now_ms: int, settings: Settings) -> tuple[bool, str]:
+    """Would the card have shown TAKE at the moment the bot opened this trade? Stored on the trade, used for the
+    Telegram alert and to compare TAKE-only results with all bot trades."""
+    rule = bot_rule(bot, settings)
+    if rule:
+        return False, rule
+    fresh = v is not None and not v.get("error") and (_iso_ms(v.get("updated_at")) or 0) >= now_ms - STALE_MS
+    if bot.exit_model != "carry":
+        if fresh:
+            block = blocking_flags(v, bot.direction)
+            if block:
+                return False, "⚠ " + next(iter(block.values()))
+            if settings.room_check_filter and v is not None:
+                room = room_check(bot.direction, bot.entry, bot.sl, bot.tp1, levels_from_view(v))
+                if room.status == "block":
+                    return False, "no room: " + room.reason
+        else:
+            return True, "fresh signal (coin card not analysed recently, warnings not checked)"
+    return True, "fresh signal, no warnings"
+
+
 def verdict(v: dict[str, Any], bot: Any | None, now_ms: int, settings: Settings,
             labels: dict[str, Any] | None = None) -> Verdict:
     """v: a LatestView payload. bot: the newest pending/open paper trade of an enabled bot on this coin."""
@@ -176,8 +215,12 @@ def verdict(v: dict[str, Any], bot: Any | None, now_ms: int, settings: Settings,
             return skip("⚠ " + next(iter(flags.values())))
         return skip("no proven-bot signal on this coin — the general analysis alone lost money in testing")
 
-    blocking = {k: x for k, x in flags.items()
-                if k in MARKET_FLAGS or (k in DIRECTION_FLAGS and v.get("direction") == bv["direction"])}
+    blocking = blocking_flags(v, bv["direction"])
+    rule = bot_rule(bot, settings)
+    if rule:
+        return skip(rule, "bot")
+    if getattr(bot, "take", None) is False:
+        return skip(getattr(bot, "take_reason", "") or "not a TAKE when the bot opened it", "bot")
     age = now_ms - bv["created_ms"]
     if age > FRESH_MS:
         return skip(f"{bv['label']} signal is {bv['age_min']} min old — only take one within 30 min", "bot")

@@ -39,6 +39,23 @@
       <span class="text-[11px] text-zinc-400">from the strategies that made money in the 2021–2026 backtests (breakout, trend follower, funding carry) · paper bots · not advice</span>
       <a href="/auto" class="ml-auto text-xs text-emerald-300 hover:underline">Auto page →</a>
     </div>
+    {% if settings.execution_mode == 'paper' %}
+    {% set takes = day|selectattr('t.take')|list %}
+    <div class="rounded-xl bg-zinc-950/60 ring-1 ring-zinc-800 px-3 py-2 flex flex-col gap-1.5 text-xs">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-zinc-400">
+        <span>Next bot check <b class="text-zinc-200 tabular-nums">{{ next_check }}</b> (in {{ next_check_min // 60 }}h {{ next_check_min % 60 }}m)</span>
+        <span>· Last 24h: <b class="text-emerald-300">{{ takes|length }} TAKE</b>, {{ day|length - takes|length }} skipped by filters</span>
+      </div>
+      {% if day %}
+      <div class="flex flex-wrap gap-1.5">
+        {% for d in day[:12] %}{% set t = d.t %}
+        <span class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 {{ 'bg-emerald-500/10 ring-1 ring-emerald-500/30 text-emerald-100' if t.take else 'bg-zinc-900 ring-1 ring-zinc-800 text-zinc-400' }}" title="{{ bot_labels.get(t.setup, {}).get('label', t.setup) }} · {{ 'TAKE' if t.take else ('skipped: ' ~ t.take_reason if t.take_reason else 'not tagged') }}">
+          <b>{{ t.coin }}</b> {{ t.direction }} · {{ d.at }} · <span class="{{ 'text-emerald-300' if (t.r_multiple or 0) > 0 else ('text-rose-300' if (t.r_multiple or 0) < 0 else '') }}">{{ d.outcome }}</span>{% if not t.take %} · skip{% endif %}</span>
+        {% endfor %}
+      </div>
+      {% else %}<p class="text-zinc-500">No bot signals in the last 24 hours. That happens: they fire about 1–3 times a day across all coins.</p>{% endif %}
+    </div>
+    {% endif %}
     {% if settings.execution_mode != 'paper' %}
     <p class="text-sm text-zinc-400">Paper trading is off, so no proven signals are being generated. <a href="/auto" class="underline text-emerald-300">Start it on the Auto page.</a></p>
     {% elif not proven %}
@@ -51,7 +68,8 @@
           <span class="text-sm font-semibold text-zinc-100">{{ t.coin }}</span>
           <span class="rounded px-1.5 py-0.5 text-[10px] font-bold {{ {'LONG':'bg-emerald-500/15 text-emerald-300','SHORT':'bg-rose-500/15 text-rose-300'}.get(t.direction, 'bg-sky-500/15 text-sky-300') }}">{{ t.direction }}</span>
           <span class="text-[10px] text-zinc-500">{{ bot_labels.get(t.setup, {}).get('label', t.setup) }}</span>
-          <span class="ml-auto text-[10px] {{ 'text-emerald-300 font-semibold' if fresh else 'text-zinc-500' }}">{{ 'NEW · ' if fresh }}{{ ((now_ms - t.created_ms) / 60000)|round|int }} min ago</span>
+          {% if t.take is sameas false %}<span class="rounded px-1 py-0.5 text-[10px] bg-zinc-800 text-zinc-400" title="{{ t.take_reason }}">skip</span>{% endif %}
+          <span class="ml-auto text-[10px] {{ 'text-emerald-300 font-semibold' if fresh and t.take is not sameas false else 'text-zinc-500' }}">{{ 'NEW · ' if fresh and t.take is not sameas false }}{{ ((now_ms - t.created_ms) / 60000)|round|int }} min ago</span>
         </div>
         {% if t.exit_model == 'carry' %}
         <div class="text-zinc-400">Hedged: short perp + hold the same amount of spot · funding {{ t.note }}</div>

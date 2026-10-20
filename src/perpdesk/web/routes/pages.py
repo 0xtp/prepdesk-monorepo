@@ -96,7 +96,15 @@ def _dashboard_extras(s: Session, st: Any) -> dict[str, Any]:
             corr = positions_view(s, st)["correlation"]
         except Exception:
             corr = []
-    return {"proven": rows, "bot_labels": BOT_INFO, "now_ms": now_ms(), "wallet_corr": corr}
+    from perpdesk.alerts import notify
+    from perpdesk.alerts.clock import hhmm
+
+    now = now_ms()
+    day = notify.last_day(s, st, now)
+    return {"proven": rows, "bot_labels": BOT_INFO, "now_ms": now, "wallet_corr": corr,
+            "day": [{"t": t, "outcome": notify.outcome(t), "at": hhmm(t.created_ms, st.alert_tz)} for t in day],
+            "next_check": hhmm(notify.next_check_ms(now), st.alert_tz),
+            "next_check_min": round((notify.next_check_ms(now) - now) / 60_000)}
 
 
 @router.get("/asset/{asset_id}", response_class=HTMLResponse)
@@ -208,13 +216,70 @@ def backtest_report(run_id: int, s: Session = Depends(db)) -> HTMLResponse:
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, s: Session = Depends(db), saved: str | None = None, error: str | None = None
                   ) -> HTMLResponse:
+    from perpdesk.alerts import telegram as tg
+    from perpdesk.store import kv_get
+
     st = settings_for(s)
     health = s.execute(select(SourceHealthRow).order_by(SourceHealthRow.name)).scalars().all()
+    code = kv_get(s, tg.CODE_KEY)
+    tgv = {"configured": tg.configured(st), "linked": tg.linked(s), "env_chat": bool(st.telegram_chat_id),
+           "bot": kv_get(s, "telegram:bot"), "code": code["code"] if isinstance(code, dict) else None}
     return templates.TemplateResponse(request, "settings.html", {
         "settings": st, "masked": st.masked(), "overrides": load_overrides(s), "runtime_keys": RUNTIME_KEYS,
         "env": get_settings(), "health": health, "hb": _heartbeats(s), "saved": saved, "error": error,
-        "page": "settings",
+        "page": "settings", "tg": tgv, "tg_msg": request.query_params.get("tg"),
     })
+
+
+def _public_base(request: Request) -> str:
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    local = host.startswith(("localhost", "127.0.0.1", "testserver"))
+    return f"{'http' if local else 'https'}://{host}"
+
+
+@router.post("/telegram/connect")
+async def telegram_connect(request: Request, s: Session = Depends(db)) -> RedirectResponse:
+    """Point the bot's webhook at this deployment and create a one-time code to link your chat."""
+    from perpdesk.alerts import telegram as tg
+    from perpdesk.store import kv_set
+
+    st = settings_for(s)
+    if not tg.configured(st):
+        return RedirectResponse("/settings?tg=Set TELEGRAM_BOT_TOKEN in Vercel first, then redeploy.", status_code=303)
+    try:
+        me = await tg.api(st, "getMe")
+        user = (me or {}).get("result", {}).get("username", "")
+        url = f"{_public_base(request)}/api/telegram/{tg.webhook_secret(st)}"
+        await tg.api(st, "setWebhook", {"url": url, "allowed_updates": ["message"], "drop_pending_updates": True})
+    except Exception as e:
+        msg = str(e).split(": ", 1)[-1][:160]
+        return RedirectResponse(f"/settings?tg=Telegram refused: {msg}", status_code=303)
+    kv_set(s, "telegram:bot", user)
+    tg.new_link_code(s)
+    s.commit()
+    return RedirectResponse("/settings?tg=Open the link below and press Start in Telegram.#telegram", status_code=303)
+
+
+@router.post("/telegram/test")
+async def telegram_test(s: Session = Depends(db)) -> RedirectResponse:
+    from perpdesk.alerts import notify
+    from perpdesk.alerts import telegram as tg
+    from perpdesk.pipeline import now_ms
+
+    st = settings_for(s)
+    ok = await tg.notify(s, st, "🔔 PerpDesk test alert. TAKE signals, closes and the daily summary will arrive here.\n\n"
+                         + notify.summary_text(s, st, now_ms()))
+    return RedirectResponse(f"/settings?tg={'Test message sent.' if ok else 'Not sent: link your chat first.'}#telegram",
+                            status_code=303)
+
+
+@router.post("/telegram/unlink")
+def telegram_unlink(s: Session = Depends(db)) -> RedirectResponse:
+    from perpdesk.alerts import telegram as tg
+
+    tg.unlink(s)
+    s.commit()
+    return RedirectResponse("/settings?tg=Chat unlinked. No more alerts.#telegram", status_code=303)
 
 
 @router.post("/settings")

@@ -59,6 +59,7 @@ async def tick(s: Session, budget_s: float = 50.0) -> dict[str, Any]:
                 await telegram.maybe_alert(s, settings, res.plan, res.view)
         new_cursor = (cursor + len(done)) % n if n else 0
         out.update({"analysed": done, "errors": errors, "remaining": n - len(done)})
+        await _health_alerts(s, settings, "tick")
         persist_health(s)
         heartbeat(s, "tick", not errors, int((time.monotonic() - t0) * 1000),
                   f"{len(done)}/{n} assets; {len(errors)} errors", new_cursor)
@@ -83,12 +84,9 @@ async def _wallet(s: Session, hl: Hyperliquid, settings: Settings) -> dict[str, 
     except Exception as e:  # wallet tracking must never break signal generation
         s.rollback()
         return {"error": f"{type(e).__name__}: {e}"}
-    if settings.telegram_enabled and settings.telegram_chat_id and (res.opened or res.closed):
-        lines = [f"📥 Opened {x}" for x in res.opened] + [f"📤 Closed {x}" for x in res.closed]
-        try:
-            await telegram.send(settings, settings.telegram_chat_id, "\n".join(lines) + "\n\nSee My trades for advice.")
-        except Exception:
-            pass
+    if settings.alerts_wallet and (res.opened or res.closed):
+        lines = [f"📥 Your position opened: {x}" for x in res.opened] + [f"📤 Your position closed: {x}" for x in res.closed]
+        await telegram.notify(s, settings, "\n".join(lines) + "\n\nSee My trades for advice.")
     return {"new_fills": res.new_fills, "opened": res.opened, "closed": res.closed, "error": res.error}
 
 
@@ -96,21 +94,22 @@ async def _auto(s: Session, hl: Hyperliquid, ctx: Any, settings: Settings,
                 budget_s: float | None = None) -> dict[str, Any] | None:
     if settings.execution_mode == "signals":
         return None
+    from perpdesk.alerts import notify
     from perpdesk.auto.engine import run
 
+    t0 = time.monotonic()
     try:
         res = await run(s, hl, ctx, settings, now_ms(), budget_s=budget_s)
         s.commit()
     except Exception as e:  # the auto-trader must never break signal generation
         s.rollback()
         return {"error": f"{type(e).__name__}: {e}"}
-    if settings.telegram_enabled and settings.telegram_chat_id and (res.opened or res.closed):
-        lines = [f"🤖 PAPER open {x}" for x in res.opened] + [f"🤖 PAPER closed {x}" for x in res.closed]
-        try:
-            await telegram.send(settings, settings.telegram_chat_id, "\n".join(lines))
-        except Exception:
-            pass
-    return res.as_dict()
+    out = res.as_dict()
+    # tag new trades TAKE / skip and send Telegram alerts (never raises)
+    left = (budget_s or 40.0) - (time.monotonic() - t0)
+    out["alerts"] = await notify.after_auto(s, hl, ctx, settings, now_ms(), res,
+                                            deadline=time.monotonic() + max(3.0, left))
+    return out
 
 
 async def auto_tick(s: Session, budget_s: float = 40.0) -> dict[str, Any]:
@@ -123,11 +122,25 @@ async def auto_tick(s: Session, budget_s: float = 40.0) -> dict[str, Any]:
     ctx = await load_context(s, hl, settings)
     s.commit()
     out = await _auto(s, hl, ctx, settings, budget_s=max(5.0, budget_s - (time.monotonic() - t0)))
+    await _health_alerts(s, settings, "auto")
     persist_health(s)
     heartbeat(s, "auto", bool(out) and not (out or {}).get("error"), int((time.monotonic() - t0) * 1000),
               str({k: (len(v) if isinstance(v, list) else v) for k, v in (out or {}).items()})[:500])
     s.commit()
     return {"auto": out, "ms": int((time.monotonic() - t0) * 1000)}
+
+
+async def _health_alerts(s: Session, settings: Settings, me: str) -> None:
+    """Scheduler watchdog (each job checks the other) and the daily summary when paper trading is off."""
+    from perpdesk.alerts import notify
+
+    try:
+        await notify.watchdog(s, settings, now_ms(), me)
+        if settings.execution_mode != "paper":
+            await notify.daily_summary(s, settings, now_ms())
+        s.commit()
+    except Exception:
+        s.rollback()
 
 
 async def daily(s: Session) -> dict[str, Any]:

@@ -318,30 +318,68 @@ async def cron_daily(request: Request, s: Session = Depends(db)) -> JSONResponse
 
 @router.post("/api/telegram/{secret}")
 async def telegram_webhook(secret: str, request: Request, s: Session = Depends(db)) -> JSONResponse:
-    st = settings_for(s)
-    if not (st.telegram_enabled and st.telegram_webhook_secret and hmac.compare_digest(secret, st.telegram_webhook_secret)):
-        return JSONResponse({"ok": False}, status_code=403)
-    from perpdesk.alerts.telegram import format_check, send
+    """Telegram updates. Read-only: links your chat, answers /status, /summary, /check SOL. No trading commands."""
+    from perpdesk.alerts import notify
+    from perpdesk.alerts import telegram as tg
 
+    st = settings_for(s)
+    want = tg.webhook_secret(st)
+    if not (tg.configured(st) and want and hmac.compare_digest(secret, want)):
+        return JSONResponse({"ok": False}, status_code=403)
     upd = await request.json()
     msg = upd.get("message") or {}
     uid = (msg.get("from") or {}).get("id")
     text = (msg.get("text") or "").strip()
     chat = (msg.get("chat") or {}).get("id")
-    if uid not in st.telegram_allowed_user_ids or not chat:
+    if not chat:
         return JSONResponse({"ok": True})
-    if text.startswith("/check"):
+    if not tg.allowed_user(s, st, uid):
+        if tg.try_link(s, text, chat, uid):
+            s.commit()
+            await tg.send(st, chat, "✅ Linked. PerpDesk alerts will come to this chat only.\n"
+                                    "Commands: /status · /summary · /check SOL")
+        return JSONResponse({"ok": True})  # strangers get no reply at all
+    cmd = text.split()[0].split("@")[0].lower() if text else ""
+    if cmd == "/check":
         parts = text.split()
         sym = parts[1].upper() if len(parts) > 1 else ""
         a = s.execute(select(Asset).where((Asset.hl_coin == sym) | (Asset.symbol == sym))).scalars().first()
         if a is None:
-            await send(st, chat, f"{sym or '?'} is not tracked. Add it as a favourite in the app first.")
+            await tg.send(st, chat, f"{sym or '?'} is not tracked. Add it as a favourite in the app first.")
         else:
             res = await analyse_asset(s, _hl(s), a, await _context(s), st, log=True)
-            await send(st, chat, format_check(res.view))
+            s.commit()
+            await tg.send(st, chat, tg.format_check(res.view))
+    elif cmd == "/status":
+        await tg.send(st, chat, _tg_status(s, st))
+    elif cmd == "/summary":
+        await tg.send(st, chat, notify.summary_text(s, st, now_ms()))
     else:
-        await send(st, chat, "Read-only bot. Commands: /check SOL")
+        await tg.send(st, chat, "Read-only bot. Commands: /status (open paper trades and next check) · /summary "
+                                "(last 24h) · /check SOL (general analysis).")
     return JSONResponse({"ok": True})
+
+
+def _tg_status(s: Session, st: Any) -> str:
+    from perpdesk.alerts import notify
+    from perpdesk.alerts.clock import hhmm
+    from perpdesk.db.models import AutoTrade
+
+    now = now_ms()
+    rows = [t for t in s.execute(select(AutoTrade).where(AutoTrade.mode == "paper",
+                                                         AutoTrade.status.in_(["pending", "open"]))
+                                 .order_by(AutoTrade.created_ms.desc())).scalars()
+            if t.setup in notify.enabled_bots(st)]
+    lines = [f"Paper trading: {st.execution_mode}. Next 4h check: {hhmm(notify.next_check_ms(now), st.alert_tz)}."]
+    for t in rows[:12]:
+        lines.append(f"• {t.coin} {t.direction} {notify._label(t.setup)} — {notify.outcome(t)}"
+                     f"{' · TAKE' if t.take else ''}")
+    if not rows:
+        lines.append("No open paper trades.")
+    hb = s.get(JobHeartbeat, "auto")
+    if hb is not None:
+        lines.append(f"Auto scheduler last ran {hb.last_run:%H:%M} UTC ({'ok' if hb.ok else 'error'}).")
+    return "\n".join(lines)
 
 
 @router.get("/healthz")
