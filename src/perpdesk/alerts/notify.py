@@ -116,7 +116,7 @@ def size_line(t: AutoTrade, settings: Settings) -> str:
 
 
 def is_limit(t: AutoTrade) -> bool:
-    return t.entry_type == "limit" and t.fill_px is None and t.exit_model == "fixed"
+    return getattr(t, "entry_type", "market") == "limit" and t.fill_px is None and t.exit_model == "fixed"
 
 
 def half_size(t: AutoTrade, settings: Settings) -> bool:
