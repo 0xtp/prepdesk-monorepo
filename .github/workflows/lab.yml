@@ -6,6 +6,7 @@ on:
     inputs:
       coins: { description: "Comma-separated coins", default: "SOL,BTC,ETH,HYPE,AVAX,LINK,SUI,UNI,DOGE,ENA,ONDO,ZEC" }
       start: { description: "Start date YYYY-MM-DD", default: "2021-01-01" }
+      tf: { description: "Candles the strategies run on (4h or 1h)", default: "4h" }
 jobs:
   lab:
     runs-on: ubuntu-latest
@@ -23,7 +24,7 @@ jobs:
             binance-
       - name: run lab backtest
         run: |
-          .venv/bin/perpdesk lab --coins "${{ github.event.inputs.coins }}" --start "${{ github.event.inputs.start }}" --out reports
+          .venv/bin/perpdesk lab --coins "${{ github.event.inputs.coins }}" --start "${{ github.event.inputs.start }}" --tf "${{ github.event.inputs.tf || '4h' }}" --out reports
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: lab-report, path: reports/ }

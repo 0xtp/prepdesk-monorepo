@@ -131,3 +131,12 @@ def test_room_status_recorded_with_level_book(data):
     assert tr and all(t.room in ("ok", "caution", "block", "n/a") for t in tr)
     s = summarize(tr)["trend_follow"]
     assert sum(b.get("n", 0) for b in s["room"].values()) == len(tr)
+
+
+def test_same_rules_run_on_1h_candles(data):
+    c5, _, d1 = data
+    h1 = resample(c5, "1h")
+    tr = run_strategy(STRATEGIES["trend_follow"], "X", h1, d1, d1, c5, pd.DataFrame(), 0, bar_ms=3_600_000)
+    assert tr and all(t.signal_ms % 3_600_000 == 0 for t in tr)
+    s = summarize(tr)["trend_follow"]
+    assert set(s["coin_year"]["X"]) == {str(t.year) for t in tr}

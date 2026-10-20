@@ -51,7 +51,7 @@ def _lab(args: argparse.Namespace) -> int:
 
     end = date.fromisoformat(args.end) if args.end else datetime.now(UTC).date()
     run_lab([c.strip() for c in args.coins.split(",") if c.strip()], date.fromisoformat(args.start), end,
-            Path(args.cache), Path(args.out))
+            Path(args.cache), Path(args.out), tf=args.tf)
     return 0
 
 
@@ -177,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     lb.add_argument("--end")
     lb.add_argument("--cache", default=".cache/binance")
     lb.add_argument("--out", default="reports")
+    lb.add_argument("--tf", default="4h", choices=["1h", "4h"], help="candles the strategies run on")
     lb.set_defaults(fn=_lab)
     v = sub.add_parser("verify", help="live proof run against the real APIs")
     v.add_argument("--coins", default="BTC,ETH,SOL,HYPE")

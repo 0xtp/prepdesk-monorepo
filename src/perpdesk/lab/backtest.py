@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from perpdesk.analysis.types import TF_MS
 from perpdesk.lab.room import LevelBook
 from perpdesk.lab.sim import Fees, simulate_carry, simulate_fixed, simulate_trail
 from perpdesk.lab.strategies import H4_MS, STRATEGIES, CarryConfig, Strategy
@@ -52,10 +53,11 @@ def _funding_at(funding: pd.DataFrame, t_ms: int) -> float:
 
 def run_strategy(strat: Strategy, coin: str, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None,
                  c5m: pd.DataFrame, funding: pd.DataFrame, start_ms: int, fine: Any = None,
-                 book: Any = None) -> list[LabTrade]:
+                 book: Any = None, bar_ms: int = H4_MS) -> list[LabTrade]:
+    """bars: the strategy's candles (4h normally; 1h to test a faster version of the same rules)."""
     from perpdesk.backtest.runner import CoinRun, refine
 
-    feat = strat.prepare(c4h, d1, btc_d1)
+    feat = strat.prepare(c4h, d1, btc_d1, bar_ms)
     t5 = index_ms(c5m)
     if len(t5) == 0:
         return []
@@ -63,7 +65,7 @@ def run_strategy(strat: Strategy, coin: str, c4h: pd.DataFrame, d1: pd.DataFrame
     out: list[LabTrade] = []
     flat_until = -1
     run = CoinRun(coin, "", [], c5m, {}, 0.0, 0, 0, fine=fine)
-    close_ms = index_ms(feat) + H4_MS
+    close_ms = index_ms(feat) + bar_ms
     for k, row in enumerate(feat.itertuples(index=False)):
         t = int(close_ms[k])
         if t < start_ms or t < flat_until:
@@ -125,6 +127,9 @@ def summarize(trades: list[LabTrade], risk_pct: float = 0.5) -> dict[str, Any]:
             "year_dir": {f"{y} {d}": block([t.r for t in ts if t.year == y and t.direction == d])
                          for y in years for d in ("LONG", "SHORT")},
             "coin": {c: block([t.r for t in ts if t.coin == c]) for c in sorted({t.coin for t in ts})},
+            "coin_year": {c: {str(y): float(np.sum([t.r for t in ts if t.coin == c and t.year == y]))
+                              for y in years if any(t.coin == c and t.year == y for t in ts)}
+                          for c in sorted({t.coin for t in ts})},
             "exits": {k: sum(1 for t in ts if t.exit_reason == k) for k in sorted({t.exit_reason for t in ts})},
             "room": {k: block([t.r for t in ts if t.room == k]) for k in ("ok", "caution", "block", "n/a")},
             "room_filtered": block([t.r for t in ts if t.room != "block"]),
@@ -151,7 +156,8 @@ def summarize_carry(per_coin: dict[str, list[Any]], start_ms: int, end_ms: int) 
     return out
 
 
-def run_lab(coins: list[str], start: date, end: date, cache_dir: Path, out_dir: Path) -> dict[str, Any]:
+def run_lab(coins: list[str], start: date, end: date, cache_dir: Path, out_dir: Path, tf: str = "4h"
+            ) -> dict[str, Any]:
     from perpdesk.backtest.history import load_history
     from perpdesk.backtest.main import minute_loader
 
@@ -177,7 +183,8 @@ def run_lab(coins: list[str], start: date, end: date, cache_dir: Path, out_dir: 
         book = LevelBook(fr)
         for strat in STRATEGIES.values():
             ts = time.monotonic()
-            got = run_strategy(strat, coin, fr["4h"], fr["1d"], btc_d1, hist.c5m, hist.funding, start_ms, fine, book)
+            got = run_strategy(strat, coin, fr[tf], fr["1d"], btc_d1, hist.c5m, hist.funding, start_ms, fine, book,
+                               TF_MS[tf])
             trades.extend(got)
             avg = float(np.mean([t.r for t in got])) if got else 0.0
             _log(f"{coin:5s} {strat.name:16s} n={len(got):4d} avgR={avg:+.3f} ({time.monotonic() - ts:.0f}s)")
@@ -186,7 +193,7 @@ def run_lab(coins: list[str], start: date, end: date, cache_dir: Path, out_dir: 
         carry[coin] = simulate_carry(rates)
         _log(f"{coin:5s} funding_carry    n={len(carry[coin]):4d} (funding history from "
              f"{rates.index[0]:%Y-%m-%d})" if not rates.empty else f"{coin}: no funding history")
-    summary = {"start": start.isoformat(), "end": end.isoformat(), "coins": coins, "sources": sources,
+    summary = {"start": start.isoformat(), "end": end.isoformat(), "tf": tf, "coins": coins, "sources": sources,
                "strategies": summarize(trades), "carry": summarize_carry(carry, start_ms, last_ms),
                "seconds": round(time.monotonic() - t0)}
     (out_dir / "lab_summary.json").write_text(json.dumps(summary, indent=2, default=str))
@@ -204,7 +211,7 @@ def report_lines(s: dict[str, Any]) -> list[str]:
         return (f"n={b['n']:4d} win={b['win_rate']:4.0%} avgR={b['avg_r']:+.3f} sumR={b['sum_r']:+7.1f} "
                 f"PF={min(pf or 0, 99):5.2f} maxDD={b['max_dd_r']:5.1f}R  @0.5%risk={b['pct_at_risk']:+6.1f}%")
 
-    out = [f"LAB RESULTS {s['start']} -> {s['end']} ({s['seconds']}s)"]
+    out = [f"LAB RESULTS {s.get('tf', '4h')} {s['start']} -> {s['end']} ({s['seconds']}s)"]
     for name, b in s["strategies"].items():
         out.append(f"== {name}: {fmt(b['all'])}")
         for d, x in b["direction"].items():
@@ -213,7 +220,10 @@ def report_lines(s: dict[str, Any]) -> list[str]:
             if x.get("n"):
                 out.append(f"   {y:10s}  {fmt(x)}")
         for c, x in b["coin"].items():
-            out.append(f"   coin {c:6s}  {fmt(x)}")
+            yrs = b.get("coin_year", {}).get(c, {})
+            pos = sum(1 for v in yrs.values() if v > 0)
+            out.append(f"   coin {c:6s}  {fmt(x)}  years+ {pos}/{len(yrs)}: "
+                       + " ".join(f"{y[2:]}:{v:+.1f}" for y, v in yrs.items()))
         out.append(f"   exits {b['exits']}")
         out.append("   room to move at the signal (block = strong level within 0.5R in the way; caution = before TP1):")
         for k, x in b.get("room", {}).items():

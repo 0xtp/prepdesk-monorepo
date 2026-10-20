@@ -34,12 +34,13 @@ class Strategy(Protocol):
     label: str
     sides: str
 
-    def prepare(self, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None) -> pd.DataFrame: ...
+    def prepare(self, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None,
+                bar_ms: int = H4_MS) -> pd.DataFrame: ...
 
     def entry_at(self, row: Any) -> Entry | None: ...
 
 
-def daily_context(c4h: pd.DataFrame, d1: pd.DataFrame, prefix: str) -> pd.DataFrame:
+def daily_context(c4h: pd.DataFrame, d1: pd.DataFrame, prefix: str, bar_ms: int = H4_MS) -> pd.DataFrame:
     """Daily close / EMA20 / EMA50 as known at each 4h close (a daily bar counts only once it has closed)."""
     if d1 is None or d1.empty:
         return pd.DataFrame(index=c4h.index, columns=[f"{prefix}close", f"{prefix}ema20", f"{prefix}ema50"],
@@ -47,7 +48,7 @@ def daily_context(c4h: pd.DataFrame, d1: pd.DataFrame, prefix: str) -> pd.DataFr
     d = pd.DataFrame({f"{prefix}close": d1["close"], f"{prefix}ema20": ema(d1["close"], 20),
                       f"{prefix}ema50": ema(d1["close"], 50)})
     d.index = d.index + pd.Timedelta(milliseconds=DAY_MS)  # available from the daily close
-    close_at = pd.DataFrame(index=c4h.index + pd.Timedelta(milliseconds=H4_MS))
+    close_at = pd.DataFrame(index=c4h.index + pd.Timedelta(milliseconds=bar_ms))
     j = pd.merge_asof(close_at.reset_index(names="t"), d.reset_index(names="t").sort_values("t"), on="t",
                       direction="backward")
     j.index = c4h.index
@@ -66,13 +67,14 @@ class BreakdownShort:
 
     name, label, sides = "breakdown_short", "Breakdown short", "SHORT"
 
-    def prepare(self, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None) -> pd.DataFrame:
+    def prepare(self, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None,
+                bar_ms: int = H4_MS) -> pd.DataFrame:
         f = _base(c4h)
         f["low20"] = f["low"].shift(1).rolling(20, min_periods=20).min()
         f["vol20"] = f["volume"].shift(1).rolling(20, min_periods=20).mean()
         f["high3"] = f["high"].rolling(3, min_periods=3).max()
-        f = f.join(daily_context(c4h, d1, "d_"))
-        f = f.join(daily_context(c4h, btc_d1 if btc_d1 is not None else d1, "btc_"))
+        f = f.join(daily_context(c4h, d1, "d_", bar_ms))
+        f = f.join(daily_context(c4h, btc_d1 if btc_d1 is not None else d1, "btc_", bar_ms))
         return f
 
     def entry_at(self, r: Any) -> Entry | None:
@@ -93,7 +95,8 @@ class TrendFollow:
 
     name, label, sides = "trend_follow", "Trend follower", "LONG+SHORT"
 
-    def prepare(self, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None) -> pd.DataFrame:
+    def prepare(self, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None,
+                bar_ms: int = H4_MS) -> pd.DataFrame:
         f = _base(c4h)
         f["atr20"] = atr(f["high"], f["low"], f["close"], 20)
         f["hi55"] = f["high"].shift(1).rolling(55, min_periods=55).max()
@@ -124,7 +127,8 @@ class RangeRevert:
 
     name, label, sides = "range_revert", "Range trader", "LONG+SHORT"
 
-    def prepare(self, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None) -> pd.DataFrame:
+    def prepare(self, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None,
+                bar_ms: int = H4_MS) -> pd.DataFrame:
         f = _base(c4h)
         f = f.join(bollinger(f["close"], 20, 2.0)[["mid", "upper", "lower"]])
         f["rsi14"] = rsi(f["close"], 14)
