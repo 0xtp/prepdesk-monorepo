@@ -115,6 +115,10 @@ def size_line(t: AutoTrade, settings: Settings) -> str:
             f"at {lev}x isolated)")
 
 
+def is_limit(t: AutoTrade) -> bool:
+    return t.entry_type == "limit" and t.fill_px is None and t.exit_model == "fixed"
+
+
 def half_size(t: AutoTrade, settings: Settings) -> bool:
     return t.setup == "trend_follow" and settings.new_trend_coin(t.coin, t.created_ms)
 
@@ -132,8 +136,15 @@ def take_message(t: AutoTrade, settings: Settings) -> str:
     else:
         r = abs(entry - t.sl)
         band = settings.auto_max_entry_drift_r * r
-        lines += [f"Entry: {_px(entry)} (market) — only while price is {_px(entry - band)}–{_px(entry + band)}",
-                  f"Stop: {_px(t.sl)} ({_pct(entry, t.sl)})"]
+        if is_limit(t):
+            side = "BUY" if t.direction == "LONG" else "SELL"
+            lines += [f"Entry: LIMIT {side} at {_px(t.entry)} — place a limit order and wait for price to come back; "
+                      "don't chase at market.",
+                      f"Cancel it if not filled by {hhmm(t.expires_ms, settings.alert_tz)} or if price reaches "
+                      f"{_px(t.runaway)} first."]
+        else:
+            lines.append(f"Entry: {_px(entry)} (market) — only while price is {_px(entry - band)}–{_px(entry + band)}")
+        lines.append(f"Stop: {_px(t.sl)} ({_pct(entry, t.sl)})")
         if t.exit_model == "trail":
             lines.append("Exit: trailing stop, no fixed target — I'll message you when the bot exits "
                          "(current stop on the Auto page).")
@@ -143,7 +154,8 @@ def take_message(t: AutoTrade, settings: Settings) -> str:
         sl = size_line(t, settings)
         if sl:
             lines.append(sl)
-    lines.append(f"Valid until {hhmm(t.created_ms + FRESH_MS, settings.alert_tz)} — after that, skip it.")
+    if not is_limit(t):
+        lines.append(f"Valid until {hhmm(t.created_ms + FRESH_MS, settings.alert_tz)} — after that, skip it.")
     lines += [f"https://app.hyperliquid.xyz/trade/{t.coin}", DISCLAIMER]
     return "\n".join(lines)
 
@@ -153,6 +165,10 @@ def close_message(t: AutoTrade, settings: Settings) -> str:
             "stop": "hit the stop", "trail": "exited on the trailing stop", "timeout": "closed on the time limit",
             "funding_low": "closed the carry (funding dropped)", "not_triggered": "cancelled (never filled)",
             "killed": "closed by the kill switch"}.get(t.exit_reason or "", t.exit_reason or "closed")
+    if t.status == "cancelled" and t.exit_reason == "not_triggered" and t.entry_type == "limit":
+        head = (f"⏹ {t.coin} {t.direction} · {_label(t.setup)}: price never came back to the {_px(t.entry)} limit in "
+                f"time, so the bot did not trade. Cancel your limit order if it is still open.")
+        return head + "\n" + DISCLAIMER
     if t.status == "cancelled":
         head = f"⏹ {t.coin} {t.direction} · {_label(t.setup)} {what}. If you entered by hand, manage it yourself."
         return head + "\n" + DISCLAIMER

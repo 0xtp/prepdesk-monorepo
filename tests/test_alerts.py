@@ -256,3 +256,35 @@ def test_token_redacted_in_errors():
 
     assert _redact(f"ConnectError: https://api.telegram.org/bot{TOKEN}/sendMessage") == \
         "ConnectError: https://api.telegram.org/bot***/sendMessage"
+
+
+def test_limit_entry_alert_and_cancel_say_limit(s, sent):
+    """The ZEC case: the breakout plan switched to a limit at 1174 while price was ~1190; it never filled."""
+    st = _settings(alert_tz="+05:30")
+    _link(s)
+    t = _add(s, entry_type="limit", entry=1174.0, sl=1118.4, tp1=1249.5, tp2=1340.7, runaway=1229.6,
+             expires_ms=NOW + 56 * MIN, client_id="zec")
+    asyncio.run(notify.after_auto(s, None, None, st, NOW, None))
+    text = sent[0][1]
+    assert "LIMIT BUY at $1,174.00" in text and "don't chase" in text and "(market)" not in text
+    assert "Cancel it if not filled by 14:31 +05:30" in text and "Valid until" not in text
+    t.status, t.exit_reason = "cancelled", "not_triggered"
+    s.commit()
+    asyncio.run(notify.after_auto(s, None, None, st, NOW + 60 * MIN, None))
+    assert "never came back to the $1,174.00 limit" in sent[1][1]
+
+
+def test_verdict_keeps_limit_take_while_price_above_entry():
+    from perpdesk.verdict import verdict
+
+    v = {"price": 1190.0, "updated_at": datetime.fromtimestamp((NOW - 2 * MIN) / 1000, UTC).isoformat(),
+         "direction": "LONG", "flags": [], "levels": [[1187.75, "support", "support ×52", 52]], "plan": {}}
+    bot = SimpleNamespace(setup="breakout", direction="LONG", fill_px=None, entry=1174.0, stop_now=None, sl=1118.4,
+                          tp1=1249.5, tp2=1340.7, exit_model="fixed", status="pending", created_ms=NOW - 5 * MIN,
+                          note="", tp1_hit=False, entry_type="limit", expires_ms=NOW + 55 * MIN, runaway=1229.6,
+                          coin="ZEC", take=True)
+    vd = verdict(v, bot, NOW, Settings())
+    assert vd.take and "LIMIT order at 1174" in vd.reason and vd.take_until_ms == NOW + 55 * MIN
+    assert "resistance ×52" in vd.room.reason  # named by its side relative to the trade, not "support"
+    assert not verdict(v, bot, NOW + 60 * MIN, Settings()).take
+    assert "ran away" in verdict({**v, "price": 1231.0}, bot, NOW, Settings()).reason

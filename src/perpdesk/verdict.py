@@ -89,7 +89,7 @@ def room_check(direction: str, entry: float, sl: float, tp1: float | None, level
     lv = min(ahead, key=lambda x: abs(x.price - entry))
     dist = abs(lv.price - entry) / r
     side = "support" if d < 0 else "resistance"
-    name = lv.label or side
+    name = f"{side} ×{lv.strength}" if lv.kind in ("support", "resistance") else (lv.label or side)
     if dist < ROOM_BLOCK_R:
         return Room("block", f"{'shorting into' if d < 0 else 'buying under'} {name} at {lv.price:.6g} "
                              f"({dist:.1f}R away)", lv, dist)
@@ -132,7 +132,9 @@ def bot_view(t: Any, labels: dict[str, Any]) -> dict[str, Any]:
     return {"bot": t.setup, "label": labels.get(t.setup, {}).get("label", t.setup), "direction": t.direction,
             "entry": t.fill_px or t.entry, "sl": t.stop_now or t.sl, "tp1": t.tp1 or None, "tp2": t.tp2 or None,
             "exit_model": t.exit_model, "status": t.status, "created_ms": t.created_ms, "note": t.note or "",
-            "age_min": None}
+            "age_min": None, "limit": getattr(t, "entry_type", "market") == "limit" and not t.fill_px
+            and t.exit_model == "fixed", "expires_ms": getattr(t, "expires_ms", None),
+            "runaway": getattr(t, "runaway", None)}
 
 
 BREAKOUT_SHORT_WEAK = "breakout shorts lost money in 2024–2026 in the backtest (still paper-tracked, not a trade)"
@@ -222,7 +224,10 @@ def verdict(v: dict[str, Any], bot: Any | None, now_ms: int, settings: Settings,
     if getattr(bot, "take", None) is False:
         return skip(getattr(bot, "take_reason", "") or "not a TAKE when the bot opened it", "bot")
     age = now_ms - bv["created_ms"]
-    if age > FRESH_MS:
+    if bv["limit"]:  # a resting limit order: valid until it expires, price above it is expected
+        if bv["expires_ms"] and now_ms > bv["expires_ms"]:
+            return skip(f"{bv['label']} limit order at {bv['entry']:.6g} expired unfilled", "bot")
+    elif age > FRESH_MS:
         return skip(f"{bv['label']} signal is {bv['age_min']} min old — only take one within 30 min", "bot")
     if blocking:
         return skip("⚠ " + next(iter(blocking.values())), "bot")
@@ -236,12 +241,17 @@ def verdict(v: dict[str, Any], bot: Any | None, now_ms: int, settings: Settings,
         drift = (price - entry) * d / r
         if (price - sl) * d <= 0:
             return skip("price is already past the bot's stop", "bot")
-        if abs(drift) > settings.auto_max_entry_drift_r:
+        if bv["limit"]:
+            if bv["runaway"] and (price - bv["runaway"]) * d >= 0:
+                return skip("price ran away from the limit entry — the bot cancels it", "bot")
+        elif abs(drift) > settings.auto_max_entry_drift_r:
             return skip(f"price has moved {drift:+.1f}R from the bot's entry (limit "
                         f"±{settings.auto_max_entry_drift_r:g}R)", "bot")
     if room.status == "block" and settings.room_check_filter:
         return skip("no room: " + room.reason, "bot")
-    reason = f"{bv['label']} {direction} signal, {bv['age_min']} min old, price near entry"
+    reason = (f"{bv['label']} {direction}: LIMIT order at {bv['entry']:.6g}, wait for price to come back"
+              if bv["limit"] else f"{bv['label']} {direction} signal, {bv['age_min']} min old, price near entry")
     if bv["bot"] == "trend_follow" and settings.new_trend_coin(getattr(bot, "coin", ""), bv["created_ms"]):
         reason += f" · 🆕 new coin: use HALF size until {settings.trend_extra_half_until}"
-    return mk(True, reason, "bot", bv, bv["created_ms"] + FRESH_MS, cautions)
+    until = bv["expires_ms"] if bv["limit"] and bv["expires_ms"] else bv["created_ms"] + FRESH_MS
+    return mk(True, reason, "bot", bv, until, cautions)

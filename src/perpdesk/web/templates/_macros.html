@@ -52,11 +52,11 @@
   <div class="text-xs text-zinc-300">Hedged: short the perp and hold the same amount of spot · {{ b.note }}</div>
   {% else %}
   <dl class="grid grid-cols-3 gap-2 text-xs tabular-nums">
-    <div><dt class="text-zinc-500">Entry</dt><dd class="text-zinc-100 font-semibold">{{ b.entry|px }}</dd></div>
+    <div><dt class="text-zinc-500">{{ 'Limit entry' if b.limit else 'Entry' }}</dt><dd class="text-zinc-100 font-semibold">{{ b.entry|px }}</dd></div>
     <div><dt class="text-zinc-500">Stop</dt><dd class="text-rose-200 font-semibold">{{ b.sl|px }}</dd></div>
     <div><dt class="text-zinc-500">{{ 'Exit' if b.exit_model == 'trail' else 'TP1 / TP2' }}</dt><dd class="text-emerald-200 font-semibold">{% if b.exit_model == 'trail' %}trailing stop, no target{% else %}{{ b.tp1|px }} / {{ b.tp2|px }}{% endif %}</dd></div>
   </dl>
-  <p class="text-[11px] text-zinc-400">Use this stop. Size it so a stop-out costs 1–2% of your account.</p>
+  <p class="text-[11px] text-zinc-400">{% if b.limit %}Place a LIMIT order at the entry and wait; don't chase at market. {% endif %}Use this stop. Size it so a stop-out costs 1–2% of your account.</p>
   {% endif %}
 </div>
 {%- endmacro %}
