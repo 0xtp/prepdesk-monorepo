@@ -106,6 +106,8 @@ def size_line(t: AutoTrade, settings: Settings) -> str:
     else:
         risk = 10.0
         label = "$10 (set your account size in Settings for a personal size)"
+    if half_size(t, settings):
+        risk, label = risk / 2, label + ", HALVED for a new coin"
     qty = risk / r
     notional = qty * (t.fill_px or t.entry)
     lev = max(1, min(int(t.leverage or 1), 10))
@@ -113,9 +115,15 @@ def size_line(t: AutoTrade, settings: Settings) -> str:
             f"at {lev}x isolated)")
 
 
+def half_size(t: AutoTrade, settings: Settings) -> bool:
+    return t.setup == "trend_follow" and settings.new_trend_coin(t.coin, t.created_ms)
+
+
 def take_message(t: AutoTrade, settings: Settings) -> str:
     entry = t.fill_px or t.entry
     lines = [f"✅ TAKE · {t.coin} {t.direction} · {_label(t.setup)}"]
+    if half_size(t, settings):
+        lines.append(f"🆕 New coin for this bot — use HALF your usual size (until {settings.trend_extra_half_until}).")
     if t.exit_model == "carry":
         lines += [f"Hedged carry: SHORT {t.coin} perp and BUY the same amount of {t.coin} spot (≈${t.notional:,.0f} "
                   "each side per bot size).",

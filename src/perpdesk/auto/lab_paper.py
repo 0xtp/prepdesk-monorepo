@@ -132,12 +132,19 @@ async def open_directional(s: Session, hl: Hyperliquid, settings: Settings, bots
     active = {b: _active(s, b) for b in bots}
     btc_d1: pd.DataFrame | None = None
     marks: dict[str, float] | None = None
-    coins = [c for c in settings.lab_coins if any(state.last_eval(s, f"{b}:{c}") < bar_close for b in bots)]
+    # the trend follower also runs on TREND_EXTRA_COINS (the other lab bots were not tested there)
+    extra = [c for c in settings.trend_extra_coins if c not in settings.lab_coins] if "trend_follow" in bots else []
+
+    def bots_for(c: str) -> list[str]:
+        return bots if c in settings.lab_coins else ["trend_follow"]
+
+    coins = [c for c in [*settings.lab_coins, *extra]
+             if any(state.last_eval(s, f"{b}:{c}") < bar_close for b in bots_for(c))]
     for k, coin in enumerate(coins):
         if out_of_time(deadline):
             res.skipped.append(f"lab bots: time budget used, {len(coins) - k} coins left for the next run")
             return
-        due = [b for b in bots if state.last_eval(s, f"{b}:{coin}") < bar_close]
+        due = [b for b in bots_for(coin) if state.last_eval(s, f"{b}:{coin}") < bar_close]
         for b in due:
             state.set_last_eval(s, f"{b}:{coin}", bar_close)
         late = (now_ms - bar_close) / 60_000

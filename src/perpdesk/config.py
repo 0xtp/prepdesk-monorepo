@@ -67,6 +67,10 @@ RUNTIME_KEYS = (
     "take_min_live_trades",
     "lab_bots",
     "lab_coins",
+    "trend_extra_coins",
+    "trend_extra_half_until",
+    "moonshot_wallet",
+    "moonshot_budget_usd",
     "llm_credit_usd",
     "llm_monthly_budget_usd",
 )
@@ -221,6 +225,13 @@ class Settings(BaseSettings):
     lab_bots: Annotated[list[str], NoDecode] = ["trend_follow", "funding_carry"]
     lab_coins: Annotated[list[str], NoDecode] = ["SOL", "BTC", "ETH", "HYPE", "AVAX", "LINK", "SUI", "UNI", "DOGE",
                                                  "ENA", "ONDO", "ZEC"]
+    # Extra coins for the trend follower only: picked 2026-10-20 as the 7 of 24 tested coins that were positive overall
+    # and in most years (2021-2026). Picked after seeing results, so expect less; alerts say "half size" until the date.
+    trend_extra_coins: Annotated[list[str], NoDecode] = ["BNB", "ADA", "TRX", "FIL", "OP", "ARB", "WLD"]
+    trend_extra_half_until: str = "2026-12-20"
+    # Moonshot bucket: a separate Hyperliquid (sub-)account with money you can afford to lose. Watch-only.
+    moonshot_wallet: str = ""
+    moonshot_budget_usd: float | None = Field(None, gt=0)
     execution_enabled: bool = False
     hl_account_address: str = ""
     hl_agent_private_key: str = ""
@@ -269,20 +280,38 @@ class Settings(BaseSettings):
             raise ValueError("ALERT_QUIET_HOURS must look like 01-07 (local hours, from-to), or be empty")
         return v
 
-    @field_validator("alert_account_usd", "alert_daily_hour", mode="before")
+    @field_validator("alert_account_usd", "alert_daily_hour", "moonshot_budget_usd", mode="before")
     @classmethod
     def _blank_none(cls, v: Any) -> Any:
         return None if v in ("", "none", "None") else v
 
-    @field_validator("watch_wallet", mode="before")
+    @field_validator("watch_wallet", "moonshot_wallet", mode="before")
     @classmethod
     def _wallet(cls, v: Any) -> Any:
         v = str(v or "").strip()
         if v and not re.fullmatch(r"0x[0-9a-fA-F]{40}", v):
-            raise ValueError("WATCH_WALLET must be a 0x… EVM address (42 characters). Never paste a private key.")
+            raise ValueError("The wallet must be a 0x… EVM address (42 characters). Never paste a private key.")
         return v.lower()
 
-    @field_validator("auto_coins", "lab_coins", mode="before")
+    def new_trend_coin(self, coin: str, now_ms: int) -> bool:
+        """An extra trend-follower coin still inside its half-size period."""
+        from datetime import UTC, datetime
+
+        if coin not in self.trend_extra_coins or coin in self.lab_coins or not self.trend_extra_half_until:
+            return False
+        return datetime.fromtimestamp(now_ms / 1000, UTC).date().isoformat() < self.trend_extra_half_until
+
+    @field_validator("trend_extra_half_until")
+    @classmethod
+    def _date(cls, v: str) -> str:
+        from datetime import date
+
+        v = (v or "").strip()
+        if v:
+            date.fromisoformat(v)
+        return v
+
+    @field_validator("auto_coins", "lab_coins", "trend_extra_coins", mode="before")
     @classmethod
     def _auto_coins(cls, v: Any) -> Any:
         return [x.upper() for x in _csv(v)] if v not in (None, "") else []

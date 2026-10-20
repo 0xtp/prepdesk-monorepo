@@ -175,6 +175,25 @@ class Hyperliquid:
     async def clearinghouse_state(self, user: str) -> dict[str, Any]:
         return dict(await self._post({"type": "clearinghouseState", "user": user}, weight=2))
 
+    async def spot_state(self, user: str) -> dict[str, Any]:
+        """spotClearinghouseState: spot balances (USDC held outside the perp account counts as cash)."""
+        return dict(await self._post({"type": "spotClearinghouseState", "user": user}, weight=2))
+
+    async def ledger_updates(self, user: str, start_ms: int) -> list[dict[str, Any]]:
+        """userNonFundingLedgerUpdates: deposits, withdrawals and transfers since start_ms, oldest first."""
+        out: list[dict[str, Any]] = []
+        cursor = start_ms
+        for _ in range(10):
+            data = await self._post({"type": "userNonFundingLedgerUpdates", "user": user, "startTime": cursor})
+            if not data:
+                break
+            data = sorted(data, key=lambda u: int(u["time"]))
+            out.extend(data)
+            if len(data) < 500:
+                break
+            cursor = int(data[-1]["time"]) + 1
+        return out
+
     async def open_orders(self, user: str) -> list[dict[str, Any]]:
         """frontendOpenOrders: includes trigger (TP/SL) orders with triggerPx, orderType, reduceOnly."""
         return list(await self._post({"type": "frontendOpenOrders", "user": user}))

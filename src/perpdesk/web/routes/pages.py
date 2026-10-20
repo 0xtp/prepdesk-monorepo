@@ -154,6 +154,25 @@ def wallet_address(address: str = Form(""), s: Session = Depends(db)) -> Redirec
     return RedirectResponse("/wallet", status_code=303)
 
 
+@router.post("/wallet/moonshot")
+def wallet_moonshot(address: str = Form(""), budget: str = Form(""), s: Session = Depends(db)) -> RedirectResponse:
+    from perpdesk.wallet import moonshot
+
+    try:
+        old = settings_for(s).moonshot_wallet
+        set_override(s, "moonshot_wallet", address.strip() or None)
+        set_override(s, "moonshot_budget_usd", budget.strip() or None)
+        if old and old != address.strip().lower():
+            from perpdesk.store import kv_set
+
+            kv_set(s, moonshot.key(old), None)  # a new account starts a fresh record
+    except Exception as e:
+        s.rollback()
+        msg = str(e).split("Value error, ")[-1].split("[")[0].strip()[:200]
+        return RedirectResponse(f"/wallet?error={msg}#moonshot", status_code=303)
+    return RedirectResponse("/wallet#moonshot", status_code=303)
+
+
 @router.get("/auto", response_class=HTMLResponse)
 def auto_page(request: Request, s: Session = Depends(db), msg: str | None = None) -> HTMLResponse:
     from perpdesk.auto import report as auto_report

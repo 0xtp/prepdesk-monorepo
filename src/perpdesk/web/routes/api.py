@@ -274,6 +274,24 @@ async def wallet_sync(request: Request, s: Session = Depends(db)) -> HTMLRespons
     return await _wallet_panel(request, s, force=True)
 
 
+@router.get("/api/moonshot/panel", response_class=HTMLResponse)
+async def moonshot_panel(request: Request, s: Session = Depends(db)) -> HTMLResponse:
+    from perpdesk.wallet import moonshot
+
+    st = settings_for(s)
+    err = None
+    try:
+        res = await moonshot.sync_cached(s, _hl(s), st, now_ms())
+        if res and res.get("error"):
+            err = res["error"]
+        s.commit()
+    except Exception as e:  # show the last known state if Hyperliquid is unreachable
+        s.rollback()
+        err = f"Could not read the moonshot account: {type(e).__name__}"
+    return templates.TemplateResponse(request, "_moonshot.html", {
+        "m": moonshot.view(s, st, moonshot.main_value(s, st)), "error": err, "settings": st})
+
+
 # ---------------------------------------------------------------- cron / webhooks / health
 
 

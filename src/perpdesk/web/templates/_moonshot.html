@@ -1,0 +1,26 @@
+{% set st = m.state %}
+{% if error %}<p class="rounded-lg bg-rose-500/10 text-rose-200 text-xs px-3 py-2">{{ error }}</p>{% endif %}
+{% if st %}
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs tabular-nums">
+  <div class="rounded-xl bg-zinc-950/60 p-3"><div class="text-zinc-500">Budget</div><div class="text-lg font-semibold text-zinc-100">{{ (st.budget or 0)|usd(0) }}</div></div>
+  <div class="rounded-xl bg-zinc-950/60 p-3"><div class="text-zinc-500">Value now</div><div class="text-lg font-semibold text-zinc-100">{{ st.value|usd }}</div></div>
+  <div class="rounded-xl bg-zinc-950/60 p-3"><div class="text-zinc-500">Profit / loss</div><div class="text-lg font-semibold {{ 'text-emerald-300' if st.pnl > 0 else ('text-rose-300' if st.pnl < 0 else 'text-zinc-200') }}">{{ st.pnl|usd }}</div><div class="text-zinc-500">{% if m.pnl_pct is not none %}{{ '%+.0f'|format(m.pnl_pct*100) }}% of budget{% endif %} · after deposits/withdrawals</div></div>
+  <div class="rounded-xl bg-zinc-950/60 p-3"><div class="text-zinc-500">Left of budget</div>
+    {% set left = m.left_pct if m.left_pct is not none else 1 %}
+    <div class="mt-1 h-2 rounded-full bg-zinc-800 overflow-hidden"><div class="h-full {{ 'bg-emerald-400' if left >= 1 else ('bg-amber-400' if left > 0.5 else 'bg-rose-500') }}" style="width: {{ [left, 1]|min * 100 }}%"></div></div>
+    <div class="mt-1 text-zinc-300">{{ (left*100)|round|int }}%{% if m.share is defined %} · {{ (m.share*100)|round|int }}% of all you track{% endif %}</div></div>
+</div>
+{% for w in m.warnings %}<p class="rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30 text-amber-100 text-xs px-3 py-2">⚠ {{ w }}</p>{% endfor %}
+{% if st.positions %}
+<table class="w-full text-xs tabular-nums"><thead class="text-zinc-500 text-left"><tr><th class="py-1 font-normal">Coin</th><th class="font-normal">Side</th><th class="font-normal text-right">Size</th><th class="font-normal text-right">Lev</th><th class="font-normal text-right">uPnL</th><th class="font-normal text-right">Liq</th><th class="font-normal text-right">Stop</th></tr></thead>
+<tbody class="divide-y divide-zinc-800/70">{% for p in st.positions %}<tr>
+  <td class="py-1.5 text-zinc-100">{{ p.coin }}</td><td class="{{ 'text-emerald-300' if p.direction == 'LONG' else 'text-rose-300' }}">{{ p.direction }}</td>
+  <td class="text-right">{{ p.size_usd|usd(0) }}</td><td class="text-right">{{ p.leverage or '–' }}x</td>
+  <td class="text-right {{ 'text-emerald-300' if (p.upnl or 0) > 0 else 'text-rose-300' }}">{{ (p.upnl or 0)|usd }}</td><td class="text-right">{{ p.liq|px if p.liq else '–' }}</td>
+  <td class="text-right {{ 'text-zinc-300' if p.has_stop else 'text-rose-300 font-semibold' }}">{{ 'set' if p.has_stop else 'NONE' }}</td></tr>{% endfor %}</tbody></table>
+{% else %}<p class="text-xs text-zinc-500">No open positions in the moonshot account.</p>{% endif %}
+{% endif %}
+<details class="text-xs text-zinc-400" {{ 'open' if not st }}><summary class="cursor-pointer text-zinc-300">The 5 moonshot rules</summary>
+  <ol class="mt-2 ml-5 list-decimal space-y-1">{% for r in m.rules %}<li>{{ r }}</li>{% endfor %}</ol>
+  <p class="mt-2 text-zinc-500">Big wins come with a big chance of losing the whole bucket. Its trades are not app signals: the TAKE rules, sizing and bot limits don't apply here.</p>
+</details>

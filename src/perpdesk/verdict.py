@@ -241,5 +241,7 @@ def verdict(v: dict[str, Any], bot: Any | None, now_ms: int, settings: Settings,
                         f"±{settings.auto_max_entry_drift_r:g}R)", "bot")
     if room.status == "block" and settings.room_check_filter:
         return skip("no room: " + room.reason, "bot")
-    return mk(True, f"{bv['label']} {direction} signal, {bv['age_min']} min old, price near entry", "bot", bv,
-              bv["created_ms"] + FRESH_MS, cautions)
+    reason = f"{bv['label']} {direction} signal, {bv['age_min']} min old, price near entry"
+    if bv["bot"] == "trend_follow" and settings.new_trend_coin(getattr(bot, "coin", ""), bv["created_ms"]):
+        reason += f" · 🆕 new coin: use HALF size until {settings.trend_extra_half_until}"
+    return mk(True, reason, "bot", bv, bv["created_ms"] + FRESH_MS, cautions)

@@ -302,3 +302,19 @@ def _proven_signal_makes_card_take(c, aid):
     flagged = "verdict-reason" in card and "⚠" in card.split("verdict-reason")[1][:300]
     assert ("Proven: Breakout" in card and ">TAKE<" in card and "data-take-until" in card) or flagged, card
     assert "Next support" in card or "next resistance" in card or "No strong support" in card
+
+
+def test_moonshot_section_and_validation(app_env):
+    c = app_env
+    page = c.get("/wallet").text
+    assert "Moonshot bucket" in page and "Sub-accounts" in page
+    bad = c.post("/wallet/moonshot", data={"address": "my seed words", "budget": "100"}, follow_redirects=False)
+    assert "error=" in bad.headers["location"]
+    ok = c.post("/wallet/moonshot", data={"address": "0x" + "c" * 40, "budget": "150"}, follow_redirects=False)
+    assert ok.status_code == 303 and "error" not in ok.headers["location"]
+    page = c.get("/wallet").text
+    assert 'hx-get="/api/moonshot/panel"' in page and 'value="150' in page
+    panel = c.get("/api/moonshot/panel")
+    assert panel.status_code == 200 and "moonshot rules" in panel.text
+    guide = c.get("/wallet").text
+    assert "BNB, ADA, TRX, FIL, OP, ARB, WLD" in guide

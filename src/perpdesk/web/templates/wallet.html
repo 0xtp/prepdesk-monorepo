@@ -58,5 +58,26 @@
     <p class="mt-3 text-xs text-zinc-500">Loading positions and history… the first sync reads up to 180 days of fills.</p>
   </div>
   {% endif %}
+
+  <section id="moonshot" class="rounded-2xl border border-fuchsia-500/25 bg-fuchsia-500/[0.04] p-4 flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <h2 class="text-sm font-semibold text-fuchsia-200">🎲 Moonshot bucket</h2>
+      <span class="text-[11px] text-zinc-400">a separate account for high-risk bets, with money you can afford to lose completely</span>
+    </div>
+    <form method="post" action="/wallet/moonshot" class="grid gap-2 sm:grid-cols-[1fr_10rem_auto] items-end text-xs">
+      <label class="text-zinc-400">Moonshot account address (a Hyperliquid sub-account or second wallet, not your main one)
+        <input name="address" value="{{ settings.moonshot_wallet }}" placeholder="0x…" autocomplete="off" spellcheck="false" class="mt-1 w-full rounded-lg bg-zinc-950 border-zinc-700 font-mono text-sm text-zinc-100"></label>
+      <label class="text-zinc-400">Budget ($)
+        <input name="budget" type="number" min="1" step="any" value="{{ settings.moonshot_budget_usd if settings.moonshot_budget_usd else '' }}" placeholder="e.g. 200" class="mt-1 w-full rounded-lg bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
+      <button class="rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm px-4 py-2">Save</button>
+    </form>
+    {% if settings.moonshot_wallet %}
+    <div id="moonshot-panel" hx-get="/api/moonshot/panel" hx-trigger="load, every 60s" hx-swap="innerHTML">
+      <div class="h-16 rounded-xl bg-zinc-900 animate-pulse"></div>
+    </div>
+    {% else %}
+    <p class="text-xs text-zinc-400">On Hyperliquid: Portfolio → Sub-accounts → create one, move only your moonshot money into it, then paste the sub-account address here. The app watches it (read-only), tracks profit after deposits and withdrawals, and messages you on Telegram if it halves, doubles, empties, or you top it up after a loss.</p>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}

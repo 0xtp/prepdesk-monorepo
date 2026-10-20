@@ -73,9 +73,25 @@ async def tick(s: Session, budget_s: float = 50.0) -> dict[str, Any]:
     return out
 
 
-async def _wallet(s: Session, hl: Hyperliquid, settings: Settings) -> dict[str, Any] | None:
-    if not settings.watch_wallet:
+async def _moonshot(s: Session, hl: Hyperliquid, settings: Settings) -> dict[str, Any] | None:
+    if not settings.moonshot_wallet:
         return None
+    from perpdesk.wallet import moonshot
+
+    try:
+        st = await moonshot.sync(s, hl, settings, now_ms())
+        sent = await moonshot.alerts(s, settings, st)
+        s.commit()
+    except Exception as e:  # never break signal generation
+        s.rollback()
+        return {"error": f"{type(e).__name__}: {e}"}
+    return {"value": (st or {}).get("value"), "pnl": (st or {}).get("pnl"), "alerts": sent}
+
+
+async def _wallet(s: Session, hl: Hyperliquid, settings: Settings) -> dict[str, Any] | None:
+    ms = await _moonshot(s, hl, settings)
+    if not settings.watch_wallet:
+        return {"moonshot": ms} if ms else None
     from perpdesk.wallet.sync import sync_wallet
 
     try:
@@ -87,7 +103,8 @@ async def _wallet(s: Session, hl: Hyperliquid, settings: Settings) -> dict[str, 
     if settings.alerts_wallet and (res.opened or res.closed):
         lines = [f"📥 Your position opened: {x}" for x in res.opened] + [f"📤 Your position closed: {x}" for x in res.closed]
         await telegram.notify(s, settings, "\n".join(lines) + "\n\nSee My trades for advice.")
-    return {"new_fills": res.new_fills, "opened": res.opened, "closed": res.closed, "error": res.error}
+    return {"new_fills": res.new_fills, "opened": res.opened, "closed": res.closed, "error": res.error,
+            "moonshot": ms}
 
 
 async def _auto(s: Session, hl: Hyperliquid, ctx: Any, settings: Settings,

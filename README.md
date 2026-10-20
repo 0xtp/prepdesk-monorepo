@@ -179,6 +179,17 @@ Paste your public Hyperliquid address (Phantom: your Ethereum/EVM address) on **
 Every paper trade is tagged at entry with whether the coin card would have shown TAKE (and why not). The Auto page
 shows each bot's results three ways: all trades, TAKE only, and skipped by the filters.
 
+### Moonshot bucket
+My trades → Moonshot: paste the address of a separate Hyperliquid sub-account (or second wallet) and a budget. The app
+reads it (watch-only), shows value, profit after deposits/withdrawals, open positions (flagging any without a stop) and
+how big it is next to your main wallet, and sends a Telegram message once each when it halves, empties, doubles, or
+you top it up after a loss. Its trades are not app signals.
+
+### Extra trend-follower coins
+`TREND_EXTRA_COINS` (BNB, ADA, TRX, FIL, OP, ARB, WLD) run the trend follower only; they were the 7 of 24 coins
+positive overall and in most years in the 2021–2026 lab backtest. Because they were picked after seeing the results,
+TAKE alerts and cards say "half size" until `TREND_EXTRA_HALF_UNTIL`.
+
 ### Live prices
 
 Dashboard cards, the asset page header and chart, and the My trades mark price update in the browser about 3 seconds after the page opens and then every 20 seconds, without reloading. Polling pauses while the tab is hidden. Only the current price and 24h change move: entry, stop, targets and liquidation stay as computed until the next analysis. The prices come from `/api/prices` (Hyperliquid contexts cached for about 20 s; DEX prices for 60 s).
