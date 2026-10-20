@@ -231,7 +231,8 @@ def test_auto_page_mode_kill_resume(app_env):
     assert c.get("/api/cron/auto").status_code == 401
     assert c.get("/api/cron/auto", headers={"Authorization": "Bearer s3cret"}).json()["mode"] == "signals"
     c.post("/auto/mode", data={"mode": "paper"})
-    assert "saved=1" in c.post("/settings", data={"lab_coins": "SOL,BTC,ETH,HYPE,AVAX", "auto_coins": "SOL,ETH,HYPE"},
+    assert "saved=1" in c.post("/settings", data={"lab_coins": "SOL,BTC,ETH,HYPE,AVAX", "auto_coins": "SOL,ETH,HYPE",
+                                                     "trend_extra_coins": "SOL"},
                                follow_redirects=False).headers["location"]
     p = c.get("/auto")
     assert "PAPER" in p.text and "Pause all" in p.text and "Leaderboard" in p.text and "Trend follower" in p.text
