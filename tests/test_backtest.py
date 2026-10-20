@@ -85,6 +85,12 @@ def test_pass1_simulate_walk_forward_end_to_end():
     oos_ts = [t.t_ms for t in labelled if t.period == "oos"]
     assert min(oos_ts) >= wf.windows[0][1]
     assert all(t.t_ms >= wf.holdout_start for t in labelled if t.period == "holdout")
+    # entry study: the forced-market plan never switches to a limit, and the report covers both variants
+    from perpdesk.backtest.main import entry_variant_lines
+
+    assert all(r.plans["market_forced"].entry_type == "market" for r in recs if "market_forced" in r.plans)
+    lines = entry_variant_lines([run], pcfg, 0, recs[0].t_ms)
+    assert lines[0].startswith("Breakout entry study") and "limit:" in lines[1]
 
 
 # ---------------------------------------------------------------- data fixes: volume splice, 1m re-check

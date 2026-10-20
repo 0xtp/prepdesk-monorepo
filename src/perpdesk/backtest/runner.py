@@ -190,6 +190,12 @@ def pass1(coin: str, asset_class: str, meta: AssetMeta, frames: dict[str, pd.Dat
                 plans[key] = build_plan(replace(a, setup=setup), meta, risk, pcfg, None, cur_f or 0.0)
             except ValueError:
                 continue
+        if "market" in plans:  # same breakout setup, but never switched to a limit (entry variant study)
+            try:
+                plans["market_forced"] = build_plan(replace(a, setup=SetupSignal("breakout", a.direction, "market")),
+                                                    meta, risk, replace(pcfg, limit_switch=False), None, cur_f or 0.0)
+            except ValueError:
+                pass
         if "composite" not in plans:
             continue
         g = plans["composite"].grade
@@ -250,11 +256,11 @@ def simulate(run: CoinRun, setup: str, param_idx: int, pcfg: PlanConfig) -> list
         if setup == "composite":
             plan = rec.plans.get("composite")
         else:
-            key = "market" if setup == "breakout" else "limit"
-            d = rec.signals.get(setup, [None])[param_idx]
+            key = {"breakout": "market", "breakout_mkt": "market_forced"}.get(setup, "limit")
+            d = rec.signals.get("breakout" if setup == "breakout_mkt" else setup, [None])[param_idx]
             if d is None or d != rec.direction:
                 continue
-            plan = rec.plans.get("market" if setup == "breakout" else "limit")
+            plan = rec.plans.get(key)
         if plan is None:
             continue
         lo = int(np.searchsorted(t5, rec.t_ms, side="left"))

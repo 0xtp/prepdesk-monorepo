@@ -85,6 +85,36 @@ def room_lines(trades: list[Trade]) -> list[str]:
     return out
 
 
+def entry_variant_lines(runs: list[CoinRun], pcfg: PlanConfig, param_idx: int, start_ms: int) -> list[str]:
+    """Breakout with its normal entry (switches to a limit retest when R:R at market is poor) vs always market.
+    Same signals, same chosen parameter, every bar from the start date (train + OOS)."""
+    from perpdesk.backtest.runner import simulate
+
+    out = ["Breakout entry study (same signals; 'normal' may switch to a limit, 'market' never does):"]
+    res: dict[str, list[Trade]] = {}
+    switched = 0
+    for run in runs:
+        switched += sum(1 for r in run.records if r.t_ms >= start_ms and "market" in r.plans
+                        and r.plans["market"].entry_type == "limit"
+                        and r.signals.get("breakout", [None])[param_idx] == r.direction)
+        for name, setup in (("normal", "breakout"), ("market", "breakout_mkt")):
+            res.setdefault(name, []).extend(t for t in simulate(run, setup, param_idx, pcfg) if t.t_ms >= start_ms)
+    out.append(f"  signals whose normal plan was a limit: {switched}")
+    for name, ts in res.items():
+        filled = [float(t.r) for t in ts if t.filled and t.r is not None]
+        unfilled = sum(1 for t in ts if not t.filled)
+        if filled:
+            out.append(f"  {name:6s} filled n={len(filled):4d} unfilled={unfilled:4d} avgR={float(np.mean(filled)):+.3f} "
+                       f"sumR={float(np.sum(filled)):+.1f} win={float(np.mean([r > 0 for r in filled])):.0%}")
+        by: dict[tuple[int, str], list[float]] = defaultdict(list)
+        for t in ts:
+            if t.filled and t.r is not None:
+                by[(datetime.fromtimestamp(t.t_ms / 1000, UTC).year, t.direction)].append(float(t.r))
+        for (y, d), v in sorted(by.items()):
+            out.append(f"    {name:6s} {y} {d:5s} n={len(v):4d} avgR={float(np.mean(v)):+.3f} sumR={float(np.sum(v)):+.1f}")
+    return out
+
+
 def run_backtest(coins: list[str], start: date, end: date, settings: Settings, cache_dir: Path, out_dir: Path,
                  classes: dict[str, str] | None = None, do_ablation: bool = False, write_db: bool = False
                  ) -> dict[str, Any]:
@@ -152,6 +182,8 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
     _log(f"ambiguous exits re-checked on 1m candles: {sum(r.refined for r in runs)} "
          f"(result changed for {sum(r.flipped for r in runs)})")
     for line in yearly_lines(trades) + room_lines(trades):
+        _log(line)
+    for line in entry_variant_lines(runs, pcfg_any, wf.final_params.get("breakout", 0), start_ms):
         _log(line)
     abl: dict[str, list[dict[str, Any]]] = {}
     if do_ablation:

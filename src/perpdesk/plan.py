@@ -52,6 +52,7 @@ class PlanConfig:
     maker_fee_bps: float = 1.5
     slippage_bps: float = 3.0
     expected_hold_bars: int = 12
+    limit_switch: bool = True  # a market setup with poor R:R switches to a limit retest entry (False = stay market)
 
 
 @dataclass(frozen=True)
@@ -423,7 +424,7 @@ def build_plan(a: Analysis, meta: AssetMeta, risk: RiskInputs, cfg: PlanConfig, 
 
     entry, sl, sl_ref, sl_desc, tp1, tp2, r = levels_for(entry_type)
     rr1 = net_rr(entry, sl, tp1, costs(entry_type), dsign)
-    if rr1 < cfg.min_rr and entry_type == "market":
+    if rr1 < cfg.min_rr and entry_type == "market" and cfg.limit_switch:
         alt = levels_for("limit")
         alt_rr = net_rr(alt[0], alt[1], alt[4], costs("limit"), dsign)
         if alt_rr > rr1:
