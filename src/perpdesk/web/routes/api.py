@@ -371,7 +371,7 @@ async def telegram_webhook(secret: str, request: Request, s: Session = Depends(d
     elif cmd == "/status":
         await tg.send(st, chat, _tg_status(s, st))
     elif cmd == "/summary":
-        await tg.send(st, chat, notify.summary_text(s, st, now_ms()))
+        await tg.send(st, chat, notify.summary_text(s, st, now_ms()), html=True)
     else:
         await tg.send(st, chat, "Read-only bot. Commands: /status (open paper trades and next check) · /summary "
                                 "(last 24h) · /check SOL (general analysis).")
@@ -380,7 +380,6 @@ async def telegram_webhook(secret: str, request: Request, s: Session = Depends(d
 
 def _tg_status(s: Session, st: Any) -> str:
     from perpdesk.alerts import notify
-    from perpdesk.alerts.clock import hhmm
     from perpdesk.db.models import AutoTrade
 
     now = now_ms()
@@ -388,7 +387,7 @@ def _tg_status(s: Session, st: Any) -> str:
                                                          AutoTrade.status.in_(["pending", "open"]))
                                  .order_by(AutoTrade.created_ms.desc())).scalars()
             if t.setup in notify.enabled_bots(st)]
-    lines = [f"Paper trading: {st.execution_mode}. Next 4h check: {hhmm(notify.next_check_ms(now), st.alert_tz)}."]
+    lines = [f"Paper trading: {st.execution_mode}. Next 4h check: {notify._t(notify.next_check_ms(now), st)}."]
     for t in rows[:12]:
         lines.append(f"• {t.coin} {t.direction} {notify._label(t.setup)} — {notify.outcome(t)}"
                      f"{' · TAKE' if t.take else ''}")

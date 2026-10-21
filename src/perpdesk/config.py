@@ -57,6 +57,8 @@ RUNTIME_KEYS = (
     "alert_account_usd",
     "alert_risk_pct",
     "alert_tz",
+    "alert_tz_label",
+    "test_start",
     "alert_quiet_hours",
     "alert_daily_hour",
     "alerts_take",
@@ -186,7 +188,10 @@ class Settings(BaseSettings):
     # Alerts (alerts/notify.py). Account size and risk only shape the suggested size in each TAKE alert.
     alert_account_usd: float | None = Field(None, gt=0)
     alert_risk_pct: float = Field(1.0, gt=0, le=5)
-    alert_tz: str = "UTC"  # IANA name (Asia/Kolkata) or a UTC offset (+05:30)
+    alert_tz: str = "+05:30"  # IANA name (Asia/Kolkata) or a UTC offset (+05:30)
+    alert_tz_label: str = "IST"  # how times are labelled in alerts (empty = the zone itself)
+    # The 4-week live test the daily scorecard tracks (TAKE trades closed on or after this date).
+    test_start: str = "2026-10-21"
     alert_quiet_hours: str = ""  # local "HH-HH", e.g. 01-07; nothing but kill-switch/halt alerts is sent then
     alert_daily_hour: int | None = Field(8, ge=0, le=23)  # local hour for the daily summary; empty = off
     alerts_take: bool = True  # TAKE signals from the proven paper bots
@@ -301,7 +306,7 @@ class Settings(BaseSettings):
             return False
         return datetime.fromtimestamp(now_ms / 1000, UTC).date().isoformat() < self.trend_extra_half_until
 
-    @field_validator("trend_extra_half_until")
+    @field_validator("trend_extra_half_until", "test_start")
     @classmethod
     def _date(cls, v: str) -> str:
         from datetime import date

@@ -170,9 +170,10 @@ Paste your public Hyperliquid address (Phantom: your Ethereum/EVM address) on **
    only talks to that chat; anyone else gets no reply. (With `AUTH_ENABLED=false` anyone who can open Settings could
    re-link it, so turn auth on for a public URL.)
 3. What arrives (`src/perpdesk/alerts/notify.py`, run after every auto-trader call, each message sent once):
-   **TAKE** signals with entry band, stop, targets, a size for `ALERT_ACCOUNT_USD` × `ALERT_RISK_PCT`, and the time
-   the signal expires; the result when a TAKE trade closes; bot pauses; the scheduler stopping or recovering; your own
-   positions opening or closing; a daily summary at `ALERT_DAILY_HOUR` (`ALERT_TZ`). Nothing in
+   **TAKE** signals (bold sections: entry with the current price, stop, targets, size for `ALERT_ACCOUNT_USD` ×
+   `ALERT_RISK_PCT`, expiry in `ALERT_TZ`); **FILLED** when a limit entry fills; **TP1 HIT** (take half, stop to
+   entry); the result when a TAKE trade closes, in R and in $ at your size, with the running test total; bot pauses; the scheduler stopping or recovering; your own
+   positions opening or closing; a daily test scorecard at `ALERT_DAILY_HOUR` (day N of 28 from `TEST_START`, signals, open trades, test total vs the backtest, your trades and rule breaks). Nothing in
    `ALERT_QUIET_HOURS` except pauses.
 4. Commands: `/status`, `/summary`, `/check SOL`. The bot has no trading commands.
 

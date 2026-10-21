@@ -97,13 +97,11 @@ def _dashboard_extras(s: Session, st: Any) -> dict[str, Any]:
         except Exception:
             corr = []
     from perpdesk.alerts import notify
-    from perpdesk.alerts.clock import hhmm
-
     now = now_ms()
     day = notify.last_day(s, st, now)
     return {"proven": rows, "bot_labels": BOT_INFO, "now_ms": now, "wallet_corr": corr,
-            "day": [{"t": t, "outcome": notify.outcome(t), "at": hhmm(t.created_ms, st.alert_tz)} for t in day],
-            "next_check": hhmm(notify.next_check_ms(now), st.alert_tz),
+            "day": [{"t": t, "outcome": notify.outcome(t), "at": notify._t(t.created_ms, st)} for t in day],
+            "next_check": notify._t(notify.next_check_ms(now), st),
             "next_check_min": round((notify.next_check_ms(now) - now) / 60_000)}
 
 
@@ -286,8 +284,8 @@ async def telegram_test(s: Session = Depends(db)) -> RedirectResponse:
     from perpdesk.pipeline import now_ms
 
     st = settings_for(s)
-    ok = await tg.notify(s, st, "🔔 PerpDesk test alert. TAKE signals, closes and the daily summary will arrive here.\n\n"
-                         + notify.summary_text(s, st, now_ms()))
+    ok = await tg.notify(s, st, "🔔 <b>PerpDesk test alert</b>\nTAKE signals, fills, closes and the daily scorecard "
+                         "will arrive here.\n\n" + notify.summary_text(s, st, now_ms()), html=True)
     return RedirectResponse(f"/settings?tg={'Test message sent.' if ok else 'Not sent: link your chat first.'}#telegram",
                             status_code=303)
 

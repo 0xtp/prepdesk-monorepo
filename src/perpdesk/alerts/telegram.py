@@ -89,17 +89,21 @@ async def api(settings: Settings, method: str, payload: dict[str, Any] | None = 
                               json=payload or {}, retries=1)
 
 
-async def send(settings: Settings, chat: str | int, text: str) -> None:
-    await api(settings, "sendMessage", {"chat_id": chat, "text": text[:4000], "disable_web_page_preview": True})
+async def send(settings: Settings, chat: str | int, text: str, html: bool = False) -> None:
+    """html=True: Telegram HTML (<b>, <a>); callers escape any free text they insert."""
+    body: dict[str, Any] = {"chat_id": chat, "text": text[:4000], "disable_web_page_preview": True}
+    if html:
+        body["parse_mode"] = "HTML"
+    await api(settings, "sendMessage", body)
 
 
-async def notify(s: Session, settings: Settings, text: str) -> bool:
+async def notify(s: Session, settings: Settings, text: str, html: bool = False) -> bool:
     """Send to the linked chat. Never raises: alerts must not break the scheduler."""
     chat = chat_id(s, settings)
     if chat is None:
         return False
     try:
-        await send(settings, chat, text)
+        await send(settings, chat, text, html=html)
         return True
     except Exception:
         return False

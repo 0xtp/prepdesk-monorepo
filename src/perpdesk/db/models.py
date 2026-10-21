@@ -410,4 +410,6 @@ class AutoTrade(Base):
     take_reason: Mapped[str] = mapped_column(Text, default="", server_default="")
     alert_open_ms: Mapped[int | None] = mapped_column(BigInteger)  # Telegram alert sent (dedupe)
     alert_close_ms: Mapped[int | None] = mapped_column(BigInteger)
+    alert_fill_ms: Mapped[int | None] = mapped_column(BigInteger)  # limit entry filled
+    alert_tp1_ms: Mapped[int | None] = mapped_column(BigInteger)  # TP1 hit: take half, stop to entry
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

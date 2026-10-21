@@ -31,9 +31,9 @@ def local(ms: int, tz_name: str) -> datetime:
     return datetime.fromtimestamp(ms / 1000, parse_tz(tz_name) or UTC)
 
 
-def hhmm(ms: int, tz_name: str) -> str:
+def hhmm(ms: int, tz_name: str, label: str = "") -> str:
     d = local(ms, tz_name)
-    label = "UTC" if (parse_tz(tz_name) or UTC) == UTC else tz_name
+    label = label or ("UTC" if (parse_tz(tz_name) or UTC) == UTC else tz_name)
     return f"{d:%H:%M} {label}"
 
 

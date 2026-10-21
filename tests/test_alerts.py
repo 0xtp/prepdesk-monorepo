@@ -82,7 +82,7 @@ def s(tmp_path):
 def sent(monkeypatch):
     out = []
 
-    async def fake_send(settings, chat, text):
+    async def fake_send(settings, chat, text, html=False):
         out.append((chat, text))
 
     monkeypatch.setattr(tg, "send", fake_send)
@@ -127,8 +127,10 @@ def test_take_alert_sent_once_then_close(s, sent):
     assert out["take_alerts"] == 1 and not out.get("error"), out
     assert long_.take is True and short.take is False and short.take_reason == BREAKOUT_SHORT_WEAK
     chat, text = sent[0]
-    assert chat == 42 and "✅ TAKE · SOL LONG · Breakout" in text and "Stop: $97.000" in text
-    assert "risk 1% of $2,000 = $20.00 → 6.667 SOL" in text and "Valid until 14:01 +05:30" in text
+    assert chat == 42 and "✅ <b>TAKE — SOL LONG</b>  ·  Breakout bot" in text
+    assert "🛑 <b>Stop</b>:  $97.000  (-3.0%)" in text and "<b>MARKET at $100.00</b>" in text
+    assert "(1% of $2,000 = $20.00): 6.667 SOL" in text and "Valid until <b>14:01 IST</b>" in text
+    assert "TP1  $105.00 (+5.0%) → close 50%, move stop to entry" in text
     assert "app.hyperliquid.xyz/trade/SOL" in text and TOKEN not in text
     asyncio.run(notify.after_auto(s, None, None, st, NOW + MIN, None))
     assert len(sent) == 1  # never repeated
@@ -136,7 +138,8 @@ def test_take_alert_sent_once_then_close(s, sent):
     short.status, short.exit_reason, short.r_multiple = "closed", "sl", -1.0
     s.commit()
     asyncio.run(notify.after_auto(s, None, None, st, NOW + 60 * MIN, None))
-    assert len(sent) == 2 and "SOL LONG · Breakout hit TP2" in sent[1][1] and "+2.10R" in sent[1][1]
+    assert len(sent) == 2 and "🟢 <b>CLOSED · WIN — SOL LONG</b>" in sent[1][1]
+    assert "<b>+2.10R</b>  ≈ +$42.00 at your size" in sent[1][1] and "Test so far" not in sent[1][1]
 
 
 def test_no_chat_no_send_and_quiet_hours(s, sent):
@@ -145,7 +148,7 @@ def test_no_chat_no_send_and_quiet_hours(s, sent):
     assert sent == []  # not linked
     _link(s)
     t = _add(s, created_ms=NOW - 2 * MIN, client_id="q")
-    asyncio.run(notify.after_auto(s, None, None, _settings(alert_quiet_hours="07-09"), NOW, None))
+    asyncio.run(notify.after_auto(s, None, None, _settings(alert_quiet_hours="07-09", alert_tz="UTC"), NOW, None))
     assert sent == [] and t.alert_open_ms is not None and t.alert_open_ms < 0  # suppressed for good
     t.status, t.exit_reason, t.r_multiple = "closed", "sl", -1.0
     s.commit()
@@ -164,14 +167,14 @@ def test_halt_watchdog_and_daily_summary(s, sent):
     from perpdesk.store import heartbeat
 
     _link(s)
-    st = _settings(alert_daily_hour=8)
+    st = _settings(alert_daily_hour=8, alert_tz="UTC")
     res = SimpleNamespace(halts={"trend_follow": "daily loss limit"}, halted=None)
     asyncio.run(notify.after_auto(s, None, None, st, NOW, res))
     asyncio.run(notify.after_auto(s, None, None, st, NOW + MIN, res))
     halts = [x for _, x in sent if "paused" in x]
-    days = [x for _, x in sent if "Daily summary" in x]
+    days = [x for _, x in sent if "scorecard" in x]
     assert len(halts) == 1 and "Trend follower paused: daily loss limit" in halts[0]
-    assert len(days) == 1 and "No signals is normal" in days[0]
+    assert len(days) == 1 and "No signals today is normal" in days[0] and "Backtest expects" in days[0]
     heartbeat(s, "tick", True, 1)
     s.commit()
     # heartbeats use the wall clock, so check against "now + 1h"
@@ -240,7 +243,7 @@ def test_connect_link_and_commands(app_tg):
     c.post(url, json={"message": {"from": {"id": 7}, "chat": {"id": 70}, "text": "/status"}})
     assert "Next 4h check" in calls[-1][1]
     c.post(url, json={"message": {"from": {"id": 7}, "chat": {"id": 70}, "text": "/summary"}})
-    assert "Daily summary" in calls[-1][1]
+    assert "scorecard" in calls[-1][1] and '"parse_mode":"HTML"' in calls[-1][1].replace(" ", "")
     # a reused code does not link another chat
     c.post(url, json={"message": {"from": {"id": 8}, "chat": {"id": 80}, "text": f"/start {code}"}})
     assert '"chat_id":80' not in calls[-1][1].replace(" ", "")
@@ -266,12 +269,38 @@ def test_limit_entry_alert_and_cancel_say_limit(s, sent):
              expires_ms=NOW + 56 * MIN, client_id="zec")
     asyncio.run(notify.after_auto(s, None, None, st, NOW, None))
     text = sent[0][1]
-    assert "LIMIT BUY at $1,174.00" in text and "don't chase" in text and "(market)" not in text
-    assert "Cancel it if not filled by 14:31 +05:30" in text and "Valid until" not in text
+    assert "<b>LIMIT BUY at $1,174.00</b>" in text and "Don't chase" in text and "MARKET" not in text
+    assert "Valid until <b>14:31 IST</b>" in text and "Cancel if price hits $1,229.60 first" in text
     t.status, t.exit_reason = "cancelled", "not_triggered"
     s.commit()
     asyncio.run(notify.after_auto(s, None, None, st, NOW + 60 * MIN, None))
-    assert "never came back to the $1,174.00 limit" in sent[1][1]
+    assert "NOT FILLED" in sent[1][1] and "never came back to $1,174.00" in sent[1][1]
+
+
+def test_fill_tp1_followups_and_scorecard(s, sent):
+    st = _settings(alert_tz="+05:30", test_start="2026-10-19")
+    _link(s)
+    t = _add(s, entry_type="limit", entry=0.2055, sl=0.19681, tp1=0.21895, tp2=0.22933, runaway=0.2142,
+             expires_ms=NOW + 56 * MIN, coin="SOL", client_id="ena")
+    asyncio.run(notify.after_auto(s, None, None, st, NOW, None))
+    t.status, t.fill_ms, t.fill_px = "open", NOW + 10 * MIN, 0.2055
+    s.commit()
+    asyncio.run(notify.after_auto(s, None, None, st, NOW + 11 * MIN, None))
+    assert "🟢 <b>FILLED" in sent[-1][1] and "Place your stop at <b>$0.196810</b>" in sent[-1][1]
+    t.tp1_hit = True
+    s.commit()
+    asyncio.run(notify.after_auto(s, None, None, st, NOW + 30 * MIN, None))
+    assert "🎯 <b>TP1 HIT" in sent[-1][1] and "Move your stop to <b>$0.205500</b>" in sent[-1][1]
+    n = len(sent)
+    asyncio.run(notify.after_auto(s, None, None, st, NOW + 31 * MIN, None))
+    assert len(sent) == n  # each follow-up once
+    t.status, t.exit_reason, t.r_multiple, t.exit_px = "closed", "tp2", 1.6, 0.22933
+    s.commit()
+    asyncio.run(notify.after_auto(s, None, None, st, NOW + 90 * MIN, None))
+    assert "🧮 Test so far: 1 trade(s) · <b>+1.60R</b>" in sent[-1][1]
+    card = notify.summary_text(s, st, NOW + 2 * 3_600_000)
+    assert "<b>Day 2 of 28 — Test scorecard</b>" in card and "Test so far</b>: 1 trade(s) · +1.60R" in card
+    assert "add your wallet" in card
 
 
 def test_verdict_keeps_limit_take_while_price_above_entry():

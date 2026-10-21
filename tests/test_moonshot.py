@@ -60,7 +60,7 @@ def test_pnl_net_of_flows_topup_warning_and_alerts_once(s, monkeypatch):
 
     sent = []
 
-    async def fake_notify(sess, settings, text):
+    async def fake_notify(sess, settings, text, html=False):
         sent.append(text)
         return True
 
@@ -110,7 +110,7 @@ def test_new_trend_coin_half_size_window():
     t = SimpleNamespace(coin="BNB", direction="LONG", setup="trend_follow", exit_model="trail", entry=600.0, fill_px=None,
                         sl=570.0, tp1=0.0, tp2=0.0, leverage=2, created_ms=NOW, notional=0, note="")
     msg = notify.take_message(t, Settings(alert_account_usd=1000))
-    assert "HALF your usual size" in msg and "risk 1% of $1,000, HALVED for a new coin = $5.00" in msg
+    assert "<b>HALF</b> your usual size" in msg and "(1% of $1,000, HALVED for a new coin = $5.00)" in msg
 
 
 def test_extra_coins_only_run_the_trend_follower(monkeypatch):
