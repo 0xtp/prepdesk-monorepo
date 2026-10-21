@@ -317,3 +317,9 @@ def test_verdict_keeps_limit_take_while_price_above_entry():
     assert "resistance ×52" in vd.room.reason  # named by its side relative to the trade, not "support"
     assert not verdict(v, bot, NOW + 60 * MIN, Settings()).take
     assert "ran away" in verdict({**v, "price": 1231.0}, bot, NOW, Settings()).reason
+
+
+def test_safe_leverage_keeps_liquidation_far_beyond_stop():
+    assert notify.safe_leverage(0.042) == 5  # ENA alert: 4.2% stop -> 5x cap
+    assert notify.safe_leverage(0.10) == 3
+    assert notify.safe_leverage(0.30) == 1

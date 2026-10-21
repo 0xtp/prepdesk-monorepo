@@ -117,9 +117,18 @@ def size_line(t: AutoTrade, settings: Settings) -> str:
         risk, label = risk / 2, label + ", HALVED for a new coin"
     qty = risk / r
     notional = qty * (t.fill_px or t.entry)
-    lev = max(1, min(int(t.leverage or 1), 10))
-    return (f"💰 <b>Size</b> ({esc(label)} = ${risk:,.2f}): {qty:.4g} {esc(t.coin)} ≈ ${notional:,.0f} · "
-            f"{lev}x isolated")
+    lev = safe_leverage(r / (t.fill_px or t.entry))
+    return (f"💰 <b>Size</b> ({esc(label)} = ${risk:,.2f}): {qty:.4g} {esc(t.coin)} ≈ ${notional:,.0f}\n"
+            f"⚙️ <b>Leverage</b>: up to {lev}x isolated (margin ≈ ${notional / lev:,.0f}) — liquidation stays well "
+            "beyond your stop. Leverage doesn't change your profit or loss; size does.")
+
+
+def safe_leverage(stop_frac: float, cap: int = 5) -> int:
+    """Highest leverage whose isolated liquidation (~1/lev minus ~1% maintenance) sits at least 3x the stop distance
+    away, capped at 5x."""
+    if stop_frac <= 0:
+        return 1
+    return max(1, min(cap, int(1 / (3 * stop_frac + 0.01))))
 
 
 def is_limit(t: AutoTrade) -> bool:
