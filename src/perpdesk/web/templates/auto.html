@@ -25,6 +25,47 @@
   </div>
 
   {% if msg %}<div class="rounded-lg bg-zinc-800/70 text-zinc-200 text-sm px-3 py-2">{{ msg }}</div>{% endif %}
+  {% set lv = live %}
+  <section id="live" class="rounded-2xl border {{ 'border-emerald-500/40' if lv.on and lv.mode == 'live' else 'border-zinc-800' }} bg-zinc-900/60 p-4 flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <h2 class="text-sm font-semibold text-zinc-100 mr-1">Live auto-trading</h2>
+      <span class="rounded-full px-2 py-0.5 text-[10px] font-bold {{ 'bg-emerald-500/20 text-emerald-300' if lv.on else 'bg-zinc-800 text-zinc-400' }}">{{ 'ON' if lv.on else 'OFF' }}</span>
+      <span class="rounded-full px-2 py-0.5 text-[10px] font-bold {{ {'live':'bg-rose-500/20 text-rose-300','dry_run':'bg-sky-500/15 text-sky-300'}.get(lv.mode, 'bg-zinc-800 text-zinc-500') }}">{{ {'live':'REAL MONEY','dry_run':'DRY RUN','off':'MODE OFF'}[lv.mode] }}</span>
+      <span class="text-[11px] text-zinc-500">{{ lv.sizing }} · max {{ st.live_max_positions }} positions · ≤{{ st.live_max_leverage }}x · daily stop −${{ st.live_daily_loss_usd }} · floor ${{ st.live_floor_usd }}</span>
+      <div class="ml-auto flex flex-wrap gap-2">
+        {% if lv.on %}<form method="post" action="/auto/live/stop"><button class="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800">⏸ Stop</button></form>
+        {% else %}<form method="post" action="/auto/live/start" onsubmit="return confirm('{{ 'Start REAL-MONEY auto-trading?' if lv.mode == 'live' else 'Start the dry run (messages only)?' }}')"><button class="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 text-sm">▶ Start</button></form>{% endif %}
+        <form method="post" action="/auto/live/check"><button class="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800">Test connection</button></form>
+        <form method="post" action="/auto/live/kill" onsubmit="var v=prompt('Cancel every order and close every position on the trading account at market. Type KILL to confirm.'); if(v===null) return false; this.confirm.value=v; return true;"><input type="hidden" name="confirm" value=""><button class="rounded-lg bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 text-sm font-semibold">■ Close all</button></form>
+      </div>
+    </div>
+    {% if lv.why %}<div class="rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30 text-amber-100 text-xs px-3 py-2">⚠ Can't trade yet: {{ lv.why }}.</div>{% endif %}
+    {% if lv.config_error %}<div class="rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-200 text-xs px-3 py-2">⚠ {{ lv.config_error }}</div>{% endif %}
+    {% if lv.halt %}<div class="rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-200 text-xs px-3 py-2">🛑 Paused: {{ lv.halt.reason }}</div>{% endif %}
+    {% if lv.day_halt %}<div class="rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-200 text-xs px-3 py-2">🛑 Daily loss stop hit: no new trades until 00:00 UTC.</div>{% endif %}
+    <dl class="grid grid-cols-2 md:grid-cols-5 gap-2 text-[11px] tabular-nums">
+      <div><dt class="text-zinc-500">Account</dt><dd class="text-zinc-200">{% if lv.last %}${{ '%.2f'|format(lv.last.value) }} <span class="text-zinc-500">(free ${{ '%.2f'|format(lv.last.withdrawable) }})</span>{% else %}–{% endif %}</dd></div>
+      <div><dt class="text-zinc-500">Live P&L</dt><dd>{{ money(lv.total) }} <span class="text-zinc-500">{{ lv.n_closed }} closed · {{ lv.wins }} won</span></dd></div>
+      <div><dt class="text-zinc-500">Today (UTC)</dt><dd>{{ money(lv.today) }}</dd></div>
+      <div><dt class="text-zinc-500">Trading account</dt><dd class="text-zinc-300">{{ lv.account or 'not set' }}</dd></div>
+      <div><dt class="text-zinc-500">API wallet</dt><dd class="text-zinc-300">{{ lv.agent or 'not set' }}</dd></div>
+    </dl>
+    {% if lv.recent %}
+    <div class="overflow-x-auto"><table class="w-full text-[11px] tabular-nums">
+      <thead class="text-zinc-500"><tr class="text-left"><th class="py-1 pr-2">Opened</th><th class="pr-2">Coin</th><th class="pr-2">Bot</th><th class="pr-2">Status</th><th class="pr-2">Entry</th><th class="pr-2">Stop</th><th class="pr-2">Size</th><th class="pr-2 text-right">P&L</th></tr></thead>
+      <tbody>{% for t in lv.recent %}<tr class="border-t border-zinc-800/70">
+        <td class="py-1 pr-2 text-zinc-400">{{ t.created_ms|ms_utc }}</td>
+        <td class="pr-2">{{ t.coin }} {{ side(t.direction) }}</td>
+        <td class="pr-2 text-zinc-400">{{ t.setup }}</td>
+        <td class="pr-2 text-zinc-300" title="{{ t.note }}">{{ t.status }}{% if t.exit_reason %} · {{ t.exit_reason }}{% endif %}{% if t.tp1_hit %} · TP1{% endif %}</td>
+        <td class="pr-2">{{ (t.fill_px or t.entry)|px }}</td>
+        <td class="pr-2">{{ ((t.exec_state or {}).get('sl_px') or t.sl)|px }}</td>
+        <td class="pr-2">{{ '%.2f'|format(t.notional) }}$ · {{ t.leverage }}x</td>
+        <td class="pr-2 text-right">{% if t.pnl_usd is not none %}{{ money(t.pnl_usd) }}{% else %}–{% endif %}</td>
+      </tr>{% endfor %}</tbody></table></div>
+    {% endif %}
+    <p class="text-[11px] text-zinc-500">Copies only <b class="text-zinc-300">TAKE</b> trades of the {{ st.live_bots|join(' and ') }} bots to your Hyperliquid account. The stop always rests on the exchange; Stop (or /autostop in Telegram) only blocks new trades. Change size A/B, amounts and limits in Settings → Live auto-trading. Telegram: /auto · /autostart · /autostop · /autokill yes.</p>
+  </section>
   {% if r.halted %}<div class="rounded-lg bg-rose-500/10 ring-1 ring-rose-500/30 text-rose-200 text-sm px-3 py-2">⛔ All bots halted: {{ r.halted.reason }} ({{ r.halted.at|ago }}). No new entries until you press Resume.</div>{% endif %}
   {% if r.stale_min is not none %}<div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-500/30 text-amber-100 text-sm px-4 py-3">
     ⚠ <b>The auto-trader is not being run often enough</b> ({{ 'never run yet' if r.stale_min < 0 else 'last check ' ~ (r.stale_min|round|int) ~ ' min ago' }}). It needs a scheduler that calls
@@ -38,7 +79,7 @@
     <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">All bots · paper equity</div><div class="text-lg font-semibold tabular-nums text-zinc-100">{{ r.equity|usd }}</div><div class="text-[11px] text-zinc-500">started {{ r.start|usd(0) }}</div></div>
     <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">Total P&L</div><div class="text-lg font-semibold tabular-nums">{{ money(r.total) }}</div><div class="text-[11px] text-zinc-500">{{ r.closed|length }} closed · {{ r.cancelled }} not filled</div></div>
     <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">Today (UTC)</div><div class="text-lg font-semibold tabular-nums">{{ money(r.today) }}</div><div class="text-[11px] text-zinc-500">each bot pauses at −{{ st.auto_daily_loss_pct }}%</div></div>
-    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">Open trades</div><div class="text-lg font-semibold tabular-nums text-zinc-100">{{ r.active|length }}</div><div class="text-[11px] text-zinc-500">max {{ st.auto_max_positions }} per bot</div></div>
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><div class="text-[11px] text-zinc-500">Open trades</div><div class="text-lg font-semibold tabular-nums text-zinc-100">{{ r.active|length }}</div><div class="text-[11px] text-zinc-500">max {{ st.auto_max_positions }} per bot ({{ st.trend_max_positions }} trend)</div></div>
   </div>
 
   <section class="flex flex-col gap-3">
@@ -149,7 +190,7 @@
       <h2 class="text-sm font-semibold text-zinc-200">Shared rules</h2>
       <ul class="flex flex-col gap-1.5 list-disc pl-4">
         <li><b class="text-zinc-300">Size:</b> each trade risks {{ st.auto_risk_pct }}% of that bot's balance if stopped; leverage only as needed, max {{ st.auto_max_leverage }}x isolated; liquidation must sit well beyond the stop.</li>
-        <li><b class="text-zinc-300">Limits per bot:</b> max {{ st.auto_max_positions }} positions, one per coin; −{{ st.auto_daily_loss_pct }}% in a day pauses that bot until tomorrow; −{{ st.auto_max_drawdown_pct }}% from its peak pauses it until you resume. The kill switch stops all bots.</li>
+        <li><b class="text-zinc-300">Limits per bot:</b> max {{ st.auto_max_positions }} positions ({{ st.trend_max_positions }} for the trend follower), one per coin; −{{ st.auto_daily_loss_pct }}% in a day pauses that bot until tomorrow; −{{ st.auto_max_drawdown_pct }}% from its peak pauses it until you resume. The kill switch stops all bots.</li>
         <li><b class="text-zinc-300">Fills:</b> market entry at the current price after the 4h close. A signal noticed late is still taken, but only while price has not already moved more than {{ st.auto_max_entry_drift_r }}× the stop distance in the trade's direction. Real fees and slippage; if a stop and a target fall inside the same candle, the stop counts.</li>
         <li><b class="text-zinc-300">Coins:</b> breakout {{ st.auto_coins|join(', ') }}; other bots {{ st.lab_coins|join(', ') }}.</li>
         <li><b class="text-zinc-300">Funding carry</b> assumes you can hold spot of the same coin (on Hyperliquid spot or elsewhere).</li>

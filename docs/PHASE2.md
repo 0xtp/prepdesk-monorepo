@@ -1,12 +1,27 @@
-# PerpDesk Phase 2 — Automated Execution (design only)
+# PerpDesk Phase 2 — Automated Execution
 
-Status: **Stage 1 (paper trading) is implemented; live execution is not.** The `auto/` package runs
-the 4h breakout-long strategy in paper mode from the scheduled tick (Auto page, `EXECUTION_MODE=paper`).
-Paper trades use live Hyperliquid 1m candles and the backtest's own scorer: same fills, fees, stop-first
-rule, TP1 half + break-even, 48h time stop. Safety limits are enforced in paper exactly as they would be
-live: daily loss pause, max-drawdown halt, max positions, kill switch. The live executor (agent-wallet
-order signing) is not built yet and needs the owner's explicit go-ahead. The app still refuses to start
-if `EXECUTION_ENABLED=true`.
+Status: **Stage 1 (paper trading) and Stage 2 (live copying of TAKE trades) are implemented.** The `auto/` package
+paper-trades the bots from the scheduled job (Auto page, `EXECUTION_MODE=paper`) with live Hyperliquid candles and the
+backtest's own code. `live/` copies the TAKE-tagged trades of the proven bots (breakout, trend follower) to a
+Hyperliquid account through an API (agent) wallet that cannot withdraw (`live/exchange.py` signs with the official
+SDK's helpers; `live/trader.py` holds the rules). Modes: `LIVE_MODE=off | dry_run | live`; Start/Stop is a separate
+switch (Auto page, Telegram `/autostart` `/autostop` `/autokill yes`). Real orders also need `AUTH_ENABLED=true`.
+
+### Live rules (live/trader.py)
+- Only fresh (≤ 30 min) TAKE trades of `LIVE_BOTS`; one live trade per coin; at most `LIVE_MAX_POSITIONS`.
+- Claimed in the database (unique `client_id`) before any order, so two overlapping runs can't double-place.
+- Limit signal → GTC limit + attached reduce-only stop (`normalTpsl`); cancelled at the signal's expiry or when the
+  paper trade is cancelled. Market signal → IOC limit capped at `LIVE_MAX_SLIPPAGE_R`; stop placed right after the
+  fill, and the position is closed at once if the stop is refused.
+- Fixed exits: reduce-only TP1 (half) and TP2; TP1 → stop to entry (new stop first, then cancel the old). If the
+  exchange refuses TP1, the half is closed at market when price reaches it.
+- Trail exits: the stop follows the paper bot's `stop_now` (only tighter); paper exit → live closes at market.
+- Every run reconciles positions, open orders and fills; a missing or undersized stop is re-placed; P&L comes from
+  the fills (closed P&L minus fees).
+- Daily loss `LIVE_DAILY_LOSS_USD` → no new trades until 00:00 UTC; account below `LIVE_FLOOR_USD` → paused until
+  `/autostart`; Stop never removes stops; kill cancels every order and closes every position.
+- Sizing A (`risk`): lose ≈ `LIVE_RISK_USD` at the stop. B (`notional`): fixed `LIVE_NOTIONAL_USD`. Isolated
+  leverage ≤ `LIVE_MAX_LEVERAGE` with liquidation ≥ 3x the stop distance away.
 
 ### Strategy lab (paper)
 Five bots run in paper mode, each with its own balance, limits and record:

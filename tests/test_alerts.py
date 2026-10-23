@@ -47,7 +47,7 @@ def _view(age_min=5, flags=()):
 def test_entry_tag_rules():
     st = Settings()
     assert entry_tag(_view(), _trade(), NOW, st) == (True, "fresh signal, no warnings")
-    assert entry_tag(_view(), _trade(direction="SHORT"), NOW, st) == (False, BREAKOUT_SHORT_WEAK)
+    assert entry_tag(_view(), _trade(direction="SHORT"), NOW, Settings(breakout_short_take=False)) == (False, BREAKOUT_SHORT_WEAK)
     assert entry_tag(_view(), _trade(direction="SHORT"), NOW, Settings(breakout_short_take=True))[0]
     assert entry_tag(_view(), _trade(setup="trend_follow", direction="SHORT"), NOW, st)[0]
     ev = entry_tag(_view(flags=[("event", "CPI at 12:30")]), _trade(), NOW, st)
@@ -119,7 +119,7 @@ def _link(s, chat=42, uid=7):
 
 
 def test_take_alert_sent_once_then_close(s, sent):
-    st = _settings(alert_account_usd=2000, alert_risk_pct=1, alert_tz="+05:30")
+    st = _settings(alert_account_usd=2000, alert_risk_pct=1, alert_tz="+05:30", breakout_short_take=False)
     _link(s)
     long_ = _add(s)
     short = _add(s, direction="SHORT", created_ms=NOW - 3 * MIN)  # breakout short: tagged skip, no alert

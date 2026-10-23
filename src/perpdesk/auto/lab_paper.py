@@ -60,6 +60,10 @@ def _active(s: Session, bot: str) -> set[str]:
                                                               AutoTrade.status.in_(ACTIVE))).scalars()}
 
 
+def max_positions(settings: Settings, bot: str) -> int:
+    return settings.trend_max_positions if bot == "trend_follow" else settings.auto_max_positions
+
+
 def _close(t: AutoTrade, reason: str, exit_ms: int, exit_px: float | None, r: float | None, pnl: float,
            res: Any) -> None:
     t.status, t.exit_reason, t.exit_ms, t.exit_px = "closed", reason, exit_ms, exit_px
@@ -186,7 +190,7 @@ async def open_directional(s: Session, hl: Hyperliquid, settings: Settings, bots
                 res.skipped.append(f"{b} {coin}: {e.direction} signal, but price moved {moved:+.2f}R since the 4h "
                                    f"close (limit {settings.auto_max_entry_drift_r:g}R)")
                 continue
-            if coin in active[b] or len(active[b]) >= settings.auto_max_positions:
+            if coin in active[b] or len(active[b]) >= max_positions(settings, b):
                 res.skipped.append(f"{b} {coin}: {e.direction} signal, but "
                                    + ("already in this coin" if coin in active[b] else "max positions open"))
                 continue
@@ -203,7 +207,8 @@ def _open(s: Session, settings: Settings, a: Asset, bot: str, e: Entry, px: floa
                 slippage=pc.slippage_bps / 1e4)
     c = Costs(fees.entry, fees.exit, fees.slippage, 0.0, 0.0)
     eq = state.equity(s, settings, bot=bot)
-    sz = size_trade(e.direction, px, e.stop, c, eq, settings.auto_risk_pct, settings.auto_max_leverage, meta_of(a),
+    risk_pct = (settings.trend_risk_pct or settings.auto_risk_pct) if bot == "trend_follow" else settings.auto_risk_pct
+    sz = size_trade(e.direction, px, e.stop, c, eq, risk_pct, settings.auto_max_leverage, meta_of(a),
                     liq_buffer=pc.min_liq_buffer_atr * (e.atr or abs(px - e.stop) / 2))
     if not sz.ok:
         res.skipped.append(f"{bot} {a.hl_coin}: {e.direction} skipped, {sz.reason}")

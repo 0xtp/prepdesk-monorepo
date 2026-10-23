@@ -175,7 +175,9 @@ Paste your public Hyperliquid address (Phantom: your Ethereum/EVM address) on **
    entry); the result when a TAKE trade closes, in R and in $ at your size, with the running test total; bot pauses; the scheduler stopping or recovering; your own
    positions opening or closing; a daily test scorecard at `ALERT_DAILY_HOUR` (day N of 28 from `TEST_START`, signals, open trades, test total vs the backtest, your trades and rule breaks). Nothing in
    `ALERT_QUIET_HOURS` except pauses.
-4. Commands: `/status`, `/summary`, `/check SOL`. The bot has no trading commands.
+4. Commands: `/status`, `/summary`, `/check SOL`, and the live auto-trading switch: `/auto` (status), `/autostart`,
+   `/autostop` (no new trades; open positions keep their stops), `/autokill yes` (cancel all orders, close all
+   positions). Only the linked chat can use them.
 
 Every paper trade is tagged at entry with whether the coin card would have shown TAKE (and why not). The Auto page
 shows each bot's results three ways: all trades, TAKE only, and skipped by the filters.
@@ -190,6 +192,37 @@ you top it up after a loss. Its trades are not app signals.
 `TREND_EXTRA_COINS` (BNB, ADA, TRX, FIL, OP, ARB, WLD) run the trend follower only; they were the 7 of 24 coins
 positive overall and in most years in the 2021–2026 lab backtest. Because they were picked after seeing the results,
 TAKE alerts and cards say "half size" until `TREND_EXTRA_HALF_UNTIL`.
+
+### Live auto-trading (Hyperliquid)
+Copies the **TAKE** trades of the proven bots (`LIVE_BOTS`: breakout, trend follower; never carry) to one Hyperliquid
+account, normally a sub-account holding only the money for it.
+
+**Setup (once):**
+1. Hyperliquid → create a sub-account and move the trading money into it (e.g. $50).
+2. Hyperliquid → More → **API** → create an API wallet and authorize it (it can trade, it **cannot withdraw**). Copy
+   its private key straight into Vercel → Settings → Environment Variables as `HL_AGENT_PRIVATE_KEY`. Put the
+   sub-account's public address in `HL_ACCOUNT_ADDRESS`. Never paste either into a chat or screenshot.
+3. Turn on the app password (`AUTH_ENABLED=true`, `UI_PASSWORD_HASH`, `SESSION_SECRET`): real orders are refused
+   without it. Redeploy.
+4. Auto page → **Test connection** (read-only: checks the API wallet is authorized for that account and shows its
+   value). Then **Start** (or `/autostart`) with `LIVE_MODE=dry_run`: for 2–3 days Telegram says what it *would*
+   place. Then Settings → Live auto-trading → Mode = live.
+
+**Sizing** (Settings → Live auto-trading, change any time): **A** `LIVE_SIZE_MODE=risk` loses about `LIVE_RISK_USD`
+when a stop is hit (size follows the stop distance); **B** `notional` makes every position `LIVE_NOTIONAL_USD` big.
+Orders under Hyperliquid's $10 minimum are raised to it only within 1.5x of the setting, otherwise skipped.
+Leverage is isolated, at most `LIVE_MAX_LEVERAGE`, and lower when needed so liquidation sits ≥ 3x the stop away.
+
+**Orders:** limit signals → resting limit with the stop attached (`normalTpsl`), cancelled when the signal expires;
+market signals → immediate-or-cancel limit at most `LIVE_MAX_SLIPPAGE_R` × the stop distance worse than the signal,
+then the stop at once (if the exchange refuses the stop, the position is closed at once). Fixed-exit trades get
+reduce-only TP1 (half) and TP2; after TP1 the stop moves to entry (new stop placed before the old is cancelled).
+Trend trades follow the paper bot's trailing stop and close when it exits. Each run re-checks the exchange and
+re-places a missing stop.
+
+**Limits:** `LIVE_MAX_POSITIONS` (one per coin), `LIVE_DAILY_LOSS_USD` (no new trades until 00:00 UTC),
+`LIVE_FLOOR_USD` (pause until `/autostart`), kill switch. Every order, fill, stop move, close, skip, error and pause
+goes to Telegram. Live P&L is shown on the Auto page next to the paper bots.
 
 ### Live prices
 
@@ -250,7 +283,7 @@ The same engine runs live and in the backtest. Indicators are causal, and higher
 - **Start it:** press "Start paper trading" or set `EXECUTION_MODE=paper`. Choose bots with `LAB_BOTS` and coins with `LAB_COINS`.
 - **Same code as the backtest:** paper trades run the backtest's strategy and simulator code against live Hyperliquid candles.
 - **Safety:** each bot has a daily loss pause and a max-drawdown halt; the kill switch stops every bot.
-- **No keys, no orders.** Live execution is not built.
+- **No keys, no orders** in paper mode. Live auto-trading of TAKE trades is a separate switch (section 6, "Live auto-trading").
 - **Backtests:** `perpdesk lab --start 2021-01-01`, or run the `lab-backtest` workflow. It tests every bot on every coin from 2021, re-checks ambiguous exits on 1-minute candles, and reports results by side, year and coin.
 
 The full design is in [`docs/PHASE2.md`](docs/PHASE2.md):

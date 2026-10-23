@@ -1,8 +1,5 @@
-"""Phase 2 execution interface (design only; see docs/PHASE2.md).
-
-Phase 1 ships only `NoopExecutor`. Nothing in this package can place an order, and the app refuses
-to start if EXECUTION_ENABLED=true.
-"""
+"""Original Phase 2 execution interface sketch (unused). Live orders are placed by `perpdesk.live`; nothing in this
+package can place an order."""
 
 from __future__ import annotations
 

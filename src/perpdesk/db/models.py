@@ -362,7 +362,7 @@ class AutoTrade(Base):
 
     __tablename__ = "auto_trades"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    mode: Mapped[str] = mapped_column(String(8), index=True)  # paper|live
+    mode: Mapped[str] = mapped_column(String(8), index=True)  # paper|live|dry (dry run)
     coin: Mapped[str] = mapped_column(String(40), index=True)
     asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"))
     setup: Mapped[str] = mapped_column(String(40))
@@ -412,4 +412,6 @@ class AutoTrade(Base):
     alert_close_ms: Mapped[int | None] = mapped_column(BigInteger)
     alert_fill_ms: Mapped[int | None] = mapped_column(BigInteger)  # limit entry filled
     alert_tp1_ms: Mapped[int | None] = mapped_column(BigInteger)  # TP1 hit: take half, stop to entry
+    # mode=live|dry: the paper trade it copies, the order ids (cloids) on the exchange and the current stop
+    exec_state: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

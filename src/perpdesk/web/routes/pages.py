@@ -174,11 +174,40 @@ def wallet_moonshot(address: str = Form(""), budget: str = Form(""), s: Session 
 @router.get("/auto", response_class=HTMLResponse)
 def auto_page(request: Request, s: Session = Depends(db), msg: str | None = None) -> HTMLResponse:
     from perpdesk.auto import report as auto_report
+    from perpdesk.live import trader
     from perpdesk.pipeline import now_ms
 
     st = settings_for(s)
     return templates.TemplateResponse(request, "auto.html", {"r": auto_report.build(s, st, now_ms()), "settings": st,
+                                                             "live": trader.page_view(s, st, now_ms()),
                                                              "page": "auto", "msg": msg})
+
+
+@router.post("/auto/live/{action}")
+async def auto_live(action: str, s: Session = Depends(db), confirm: str = Form("")) -> RedirectResponse:
+    """Live auto-trading switch. Same actions as Telegram /autostart, /autostop, /autokill; plus a read-only check."""
+    from urllib.parse import quote
+
+    from perpdesk.live import trader
+
+    st = settings_for(s)
+    if action == "start":
+        msg = trader.start(s, st, "web")
+    elif action == "stop":
+        msg = await trader.stop(s, st, "web")
+    elif action == "kill":
+        msg = await trader.kill(s, st, "web") if confirm == "KILL" else "Kill switch not used: type KILL to confirm."
+    elif action == "check":
+        msg = await trader.check_connection(st)
+    else:
+        return RedirectResponse("/auto", status_code=303)
+    s.commit()
+    from perpdesk.alerts import telegram
+
+    if action in ("start", "stop", "kill"):
+        await telegram.notify(s, st, f"{msg}\n(from the web app)", html=True)
+    plain = msg.replace("<b>", "").replace("</b>", "")
+    return RedirectResponse(f"/auto?msg={quote(plain)}#live", status_code=303)
 
 
 @router.post("/auto/mode")

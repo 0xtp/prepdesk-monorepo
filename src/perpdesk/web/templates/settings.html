@@ -30,7 +30,33 @@
     <p class="text-xs text-zinc-300">Open <a class="underline text-sky-300 break-all" href="https://t.me/{{ tg.bot }}?start={{ tg.code }}" target="_blank" rel="noopener">t.me/{{ tg.bot }}?start=…</a> on your phone and press <b>Start</b> (or send the bot <code>{{ tg.code }}</code>). The code works once, for 15 minutes. The bot then only talks to that chat.</p>
     {% endif %}
     {% endif %}
-    <p class="text-[11px] text-zinc-500">Alerts: TAKE signals (≈ within 5 min of a 4h close), when a TAKE trade closes, bot pauses, the scheduler stopping, your own position changes, and a daily summary. Read-only: the bot can't trade. Tune them below: ALERT_ACCOUNT_USD, ALERT_RISK_PCT, ALERT_TZ (e.g. Asia/Kolkata or +05:30), ALERT_QUIET_HOURS (e.g. 01-07), ALERT_DAILY_HOUR, ALERTS_*.</p>
+    <p class="text-[11px] text-zinc-500">Alerts: TAKE signals (≈ within 5 min of a 4h close), when a TAKE trade closes, bot pauses, the scheduler stopping, your own position changes, and a daily summary; plus every live auto-trading order, fill, stop move and close. Commands: /status, /summary, /check SOL, /auto, /autostart, /autostop, /autokill yes (only from the linked chat). Tune them below: ALERT_ACCOUNT_USD, ALERT_RISK_PCT, ALERT_TZ (e.g. Asia/Kolkata or +05:30), ALERT_QUIET_HOURS (e.g. 01-07), ALERT_DAILY_HOUR, ALERTS_*.</p>
+  </section>
+  <section id="live" class="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.03] p-4 flex flex-col gap-3 text-sm">
+    <h2 class="text-sm font-semibold text-emerald-200">Live auto-trading</h2>
+    <p class="text-xs text-zinc-400">Copies TAKE trades of the proven bots to your Hyperliquid account. Start/Stop is on the <a class="underline" href="/auto#live">Auto page</a> or in Telegram (/autostart, /autostop). The API wallet key goes only into Vercel as <code>HL_AGENT_PRIVATE_KEY</code> — never here, never in a chat.</p>
+    {% macro val(k) -%}{% set cur = overrides[k] if k in overrides else env[k] %}{{ (cur|join(',')) if cur is iterable and cur is not string else ('' if cur is none else cur) }}{%- endmacro %}
+    <form method="post" action="/settings" class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+      <label class="text-zinc-400">Mode
+        <select name="live_mode" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100">
+          {% for v, l in [('off','Off'), ('dry_run','Dry run (messages only)'), ('live','LIVE — real orders')] %}<option value="{{ v }}" {{ 'selected' if settings.live_mode == v }}>{{ l }}</option>{% endfor %}
+        </select></label>
+      <label class="text-zinc-400">Sizing
+        <select name="live_size_mode" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100">
+          <option value="risk" {{ 'selected' if settings.live_size_mode == 'risk' }}>A — fixed $ lost at the stop</option>
+          <option value="notional" {{ 'selected' if settings.live_size_mode == 'notional' }}>B — fixed position size</option>
+        </select></label>
+      <label class="text-zinc-400">A: $ lost if stopped<input name="live_risk_usd" value="{{ val('live_risk_usd') }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
+      <label class="text-zinc-400">B: $ per position (min 10)<input name="live_notional_usd" value="{{ val('live_notional_usd') }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
+      <label class="text-zinc-400">Max open positions<input name="live_max_positions" value="{{ val('live_max_positions') }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
+      <label class="text-zinc-400">Max leverage<input name="live_max_leverage" value="{{ val('live_max_leverage') }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
+      <label class="text-zinc-400">Daily loss stop ($)<input name="live_daily_loss_usd" value="{{ val('live_daily_loss_usd') }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
+      <label class="text-zinc-400">Pause below account $<input name="live_floor_usd" value="{{ val('live_floor_usd') }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
+      <label class="text-zinc-400 col-span-2">Bots copied<input name="live_bots" value="{{ val('live_bots') }}" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
+      <label class="text-zinc-400 col-span-2">Trading account address (sub-account, public 0x…)<input name="hl_account_address" value="{{ val('hl_account_address') }}" placeholder="or set HL_ACCOUNT_ADDRESS in Vercel" class="mt-1 w-full rounded bg-zinc-950 border-zinc-700 text-sm text-zinc-100"></label>
+      <div class="col-span-2 md:col-span-4 flex items-center gap-3"><button class="rounded-md bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 text-sm">Save live settings</button>
+        <span class="text-[11px] text-zinc-500">A: the size follows the stop distance so a stop costs about the $ amount. B: every position is the same size; a stop then costs more or less. Hyperliquid's minimum order is $10.</span></div>
+    </form>
   </section>
   <div class="grid gap-5 lg:grid-cols-2">
     <section class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">

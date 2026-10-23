@@ -108,7 +108,7 @@ async def _wallet(s: Session, hl: Hyperliquid, settings: Settings) -> dict[str, 
 
 
 async def _auto(s: Session, hl: Hyperliquid, ctx: Any, settings: Settings,
-                budget_s: float | None = None) -> dict[str, Any] | None:
+                budget_s: float | None = None, live: bool = False) -> dict[str, Any] | None:
     if settings.execution_mode == "signals":
         return None
     from perpdesk.alerts import notify
@@ -120,13 +120,28 @@ async def _auto(s: Session, hl: Hyperliquid, ctx: Any, settings: Settings,
         s.commit()
     except Exception as e:  # the auto-trader must never break signal generation
         s.rollback()
-        return {"error": f"{type(e).__name__}: {e}"}
+        return {"error": f"{type(e).__name__}: {e}", "live": await _live(s, hl, settings) if live else None}
     out = res.as_dict()
     # tag new trades TAKE / skip and send Telegram alerts (never raises)
     left = (budget_s or 40.0) - (time.monotonic() - t0)
     out["alerts"] = await notify.after_auto(s, hl, ctx, settings, now_ms(), res,
                                             deadline=time.monotonic() + max(3.0, left))
+    if live:  # only the auto job trades live, so two jobs never act on the same signal at once
+        out["live"] = await _live(s, hl, settings)
     return out
+
+
+async def _live(s: Session, hl: Hyperliquid, settings: Settings) -> dict[str, Any]:
+    """Copy TAKE trades to the live (or dry-run) account and look after open live trades. Never raises."""
+    from perpdesk.live import trader
+
+    try:
+        r = await trader.run(s, hl, settings, now_ms(), deadline=time.monotonic() + 15)
+        s.commit()
+        return r.as_dict()
+    except Exception as e:
+        s.rollback()
+        return {"error": f"{type(e).__name__}: {str(e)[:200]}"}
 
 
 async def auto_tick(s: Session, budget_s: float = 40.0) -> dict[str, Any]:
@@ -138,7 +153,7 @@ async def auto_tick(s: Session, budget_s: float = 40.0) -> dict[str, Any]:
         return {"mode": "signals", "note": "paper trading is off (Auto page → Start paper trading)"}
     ctx = await load_context(s, hl, settings)
     s.commit()
-    out = await _auto(s, hl, ctx, settings, budget_s=max(5.0, budget_s - (time.monotonic() - t0)))
+    out = await _auto(s, hl, ctx, settings, budget_s=max(5.0, budget_s - (time.monotonic() - t0)), live=True)
     await _health_alerts(s, settings, "auto")
     persist_health(s)
     heartbeat(s, "auto", bool(out) and not (out or {}).get("error"), int((time.monotonic() - t0) * 1000),

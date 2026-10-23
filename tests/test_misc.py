@@ -16,7 +16,7 @@ def test_config_validation_and_helpers():
     with pytest.raises(ValueError):
         Settings(_env_file=None, timeframes="1h,7m")
     with pytest.raises(ValueError):
-        Settings(_env_file=None, execution_enabled=True)
+        Settings(_env_file=None, hl_agent_private_key="not-a-key")
     with pytest.raises(ValueError):
         Settings(_env_file=None, auth_enabled=True)
     pg = Settings(_env_file=None, database_url="postgres://u:p@h:6543/db")

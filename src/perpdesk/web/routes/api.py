@@ -336,7 +336,8 @@ async def cron_daily(request: Request, s: Session = Depends(db)) -> JSONResponse
 
 @router.post("/api/telegram/{secret}")
 async def telegram_webhook(secret: str, request: Request, s: Session = Depends(db)) -> JSONResponse:
-    """Telegram updates. Read-only: links your chat, answers /status, /summary, /check SOL. No trading commands."""
+    """Telegram updates from the linked chat only: /status, /summary, /check SOL, and the auto-trading switch
+    (/auto, /autostart, /autostop, /autokill)."""
     from perpdesk.alerts import notify
     from perpdesk.alerts import telegram as tg
 
@@ -355,7 +356,7 @@ async def telegram_webhook(secret: str, request: Request, s: Session = Depends(d
         if tg.try_link(s, text, chat, uid):
             s.commit()
             await tg.send(st, chat, "✅ Linked. PerpDesk alerts will come to this chat only.\n"
-                                    "Commands: /status · /summary · /check SOL")
+                                    "Commands: /status · /summary · /check SOL · /auto · /autostart · /autostop · /autokill")
         return JSONResponse({"ok": True})  # strangers get no reply at all
     cmd = text.split()[0].split("@")[0].lower() if text else ""
     if cmd == "/check":
@@ -372,10 +373,31 @@ async def telegram_webhook(secret: str, request: Request, s: Session = Depends(d
         await tg.send(st, chat, _tg_status(s, st))
     elif cmd == "/summary":
         await tg.send(st, chat, notify.summary_text(s, st, now_ms()), html=True)
+    elif cmd in ("/auto", "/autostart", "/autostop", "/autokill"):
+        await tg.send(st, chat, await _tg_auto(s, st, cmd, text), html=True)
     else:
-        await tg.send(st, chat, "Read-only bot. Commands: /status (open paper trades and next check) · /summary "
-                                "(last 24h) · /check SOL (general analysis).")
+        await tg.send(st, chat, "Commands: /status (open paper trades and next check) · /summary (last 24h) · "
+                                "/check SOL (general analysis) · /auto (auto-trading status) · /autostart · /autostop "
+                                "(no new trades; open ones keep their stops) · /autokill yes (close everything).")
     return JSONResponse({"ok": True})
+
+
+async def _tg_auto(s: Session, st: Any, cmd: str, text: str) -> str:
+    from perpdesk.live import trader
+
+    if cmd == "/autostart":
+        msg = trader.start(s, st, "telegram")
+    elif cmd == "/autostop":
+        msg = await trader.stop(s, st, "telegram")
+    elif cmd == "/autokill":
+        if text.split()[-1].lower() != "yes":
+            return ("⛔ This cancels every order and closes every position on the trading account at market. "
+                    "Send <b>/autokill yes</b> to do it, or /autostop to only stop new trades.")
+        msg = await trader.kill(s, st, "telegram")
+    else:
+        return trader.status_text(s, st, now_ms())
+    s.commit()
+    return msg
 
 
 def _tg_status(s: Session, st: Any) -> str:

@@ -46,6 +46,8 @@ RUNTIME_KEYS = (
     "auto_risk_pct",
     "auto_max_leverage",
     "auto_max_positions",
+    "trend_max_positions",
+    "trend_risk_pct",
     "auto_daily_loss_pct",
     "auto_max_drawdown_pct",
     "auto_paper_equity",
@@ -73,6 +75,17 @@ RUNTIME_KEYS = (
     "trend_extra_half_until",
     "moonshot_wallet",
     "moonshot_budget_usd",
+    "live_mode",
+    "live_bots",
+    "live_size_mode",
+    "live_risk_usd",
+    "live_notional_usd",
+    "live_max_positions",
+    "live_max_leverage",
+    "live_daily_loss_usd",
+    "live_floor_usd",
+    "live_max_slippage_r",
+    "hl_account_address",
     "llm_credit_usd",
     "llm_monthly_budget_usd",
 )
@@ -199,8 +212,9 @@ class Settings(BaseSettings):
     alerts_health: bool = True  # scheduler stopped running
     alerts_wallet: bool = True  # your own Hyperliquid positions opened / closed
     alerts_general_flips: bool = False  # old alert: general-analysis direction flips (those signals lost money)
-    # Breakout SHORT lost money in 2024-2026 in the backtest: the bot keeps paper-trading it, cards show SKIP.
-    breakout_short_take: bool = False
+    # Breakout SHORT: off = the bot keeps paper-trading it but cards show SKIP. On by default since 2026-10-23: over
+    # 2021-2026 (12 coins) shorts were about +97R in total; only 2024 (-1R) and 2026 so far (-4R) were negative.
+    breakout_short_take: bool = True
 
     # --- Phase 2: auto-trading (paper now; live is not built yet) ---
     # signals = no auto trades; paper = simulated trades against live prices, no keys, no orders.
@@ -212,6 +226,9 @@ class Settings(BaseSettings):
     auto_risk_pct: float = Field(0.5, gt=0, le=2)  # % of trading equity lost if a stop is hit
     auto_max_leverage: int = Field(3, ge=1, le=5)
     auto_max_positions: int = Field(3, ge=1, le=10)
+    # The trend follower holds trades for weeks: with only 3 slots it missed most signals the backtest (no cap) took.
+    trend_max_positions: int = Field(6, ge=1, le=12)
+    trend_risk_pct: float | None = Field(None, gt=0, le=2)  # empty = AUTO_RISK_PCT; e.g. 0.25 with 6 slots
     auto_daily_loss_pct: float = Field(3.0, gt=0, le=20)  # halt new entries for the UTC day
     auto_max_drawdown_pct: float = Field(10.0, gt=0, le=50)  # halt until manually resumed
     auto_paper_equity: float = Field(500.0, gt=0)
@@ -237,7 +254,25 @@ class Settings(BaseSettings):
     # Moonshot bucket: a separate Hyperliquid (sub-)account with money you can afford to lose. Watch-only.
     moonshot_wallet: str = ""
     moonshot_budget_usd: float | None = Field(None, gt=0)
-    execution_enabled: bool = False
+
+    # --- Live auto-trading (live/trader.py): copies TAKE trades of the proven bots to a Hyperliquid (sub-)account ---
+    # off = nothing; dry_run = Telegram says what it WOULD place, no orders; live = real orders. Start/Stop is a
+    # separate switch (Auto page or Telegram /autostart, /autostop); live also needs AUTH_ENABLED.
+    live_mode: Literal["off", "dry_run", "live"] = "dry_run"
+    live_bots: Annotated[list[str], NoDecode] = ["breakout", "trend_follow"]
+    # risk = lose about LIVE_RISK_USD when a stop is hit (size follows the stop distance);
+    # notional = every position is LIVE_NOTIONAL_USD big (the loss at the stop then varies). Hyperliquid minimum: $10.
+    live_size_mode: Literal["risk", "notional"] = "risk"
+    live_risk_usd: float = Field(1.0, gt=0, le=1000)
+    live_notional_usd: float = Field(12.0, ge=10, le=100_000)
+    live_max_positions: int = Field(3, ge=1, le=10)
+    live_max_leverage: int = Field(5, ge=1, le=10)
+    live_daily_loss_usd: float = Field(3.0, gt=0)  # no new entries for the rest of the UTC day
+    live_floor_usd: float = Field(35.0, ge=0)  # account value below this: stop opening trades until /autostart
+    live_max_slippage_r: float = Field(0.3, ge=0, le=1)  # a market entry is skipped if price ran further than this
+    execution_enabled: bool = False  # unused (kept so an old EXECUTION_ENABLED env var does not break startup)
+    # The account the bot trades: your sub-account address (public). The API wallet key is env-only and can trade
+    # but cannot withdraw. Never paste either into a chat.
     hl_account_address: str = ""
     hl_agent_private_key: str = ""
 
@@ -285,12 +320,12 @@ class Settings(BaseSettings):
             raise ValueError("ALERT_QUIET_HOURS must look like 01-07 (local hours, from-to), or be empty")
         return v
 
-    @field_validator("alert_account_usd", "alert_daily_hour", "moonshot_budget_usd", mode="before")
+    @field_validator("alert_account_usd", "alert_daily_hour", "moonshot_budget_usd", "trend_risk_pct", mode="before")
     @classmethod
     def _blank_none(cls, v: Any) -> Any:
         return None if v in ("", "none", "None") else v
 
-    @field_validator("watch_wallet", "moonshot_wallet", mode="before")
+    @field_validator("watch_wallet", "moonshot_wallet", "hl_account_address", mode="before")
     @classmethod
     def _wallet(cls, v: Any) -> Any:
         v = str(v or "").strip()
@@ -320,6 +355,23 @@ class Settings(BaseSettings):
     @classmethod
     def _auto_coins(cls, v: Any) -> Any:
         return [x.upper() for x in _csv(v)] if v not in (None, "") else []
+
+    @field_validator("live_bots", mode="before")
+    @classmethod
+    def _live_bots(cls, v: Any) -> Any:
+        bots = [x.strip().lower() for x in _csv(v)] if v not in (None, "") else []
+        bad = [b for b in bots if b not in ("breakout", "trend_follow")]
+        if bad:
+            raise ValueError(f"LIVE_BOTS can only hold breakout and trend_follow (the proven bots), not {bad}")
+        return bots
+
+    @field_validator("hl_agent_private_key", mode="before")
+    @classmethod
+    def _agent_key(cls, v: Any) -> Any:
+        v = str(v or "").strip()
+        if v and not re.fullmatch(r"(0x)?[0-9a-fA-F]{64}", v):
+            raise ValueError("HL_AGENT_PRIVATE_KEY must be the API wallet's private key (64 hex characters)")
+        return v
 
     @field_validator("lab_bots", mode="before")
     @classmethod
@@ -351,8 +403,6 @@ class Settings(BaseSettings):
             raise ValueError("AUTH_ENABLED=true requires UI_PASSWORD_HASH and SESSION_SECRET")
         if self.telegram_enabled and not self.telegram_bot_token:
             raise ValueError("TELEGRAM_ENABLED=true requires TELEGRAM_BOT_TOKEN")
-        if self.execution_enabled:
-            raise ValueError("EXECUTION_ENABLED is a Phase 2 feature and is not implemented")
         return self
 
     # --- helpers ---

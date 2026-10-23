@@ -1,4 +1,5 @@
-"""Telegram: alerts out, a few read-only commands in (`/status`, `/check SOL`). No trading commands exist.
+"""Telegram: alerts out; commands in (`/status`, `/check SOL`, and the auto-trading switch `/autostart` `/autostop`
+`/autokill yes`, handled in web/routes/api.py).
 
 The bot only talks to one chat: the one linked from the Settings page (a one-time code sent to the bot), or
 TELEGRAM_CHAT_ID / TELEGRAM_ALLOWED_USER_IDS from the environment. The token lives only in the hosting env."""
