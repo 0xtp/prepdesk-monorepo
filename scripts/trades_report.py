@@ -19,6 +19,12 @@ from perpdesk.sources.hyperliquid import Hyperliquid
 from perpdesk.store import kv_get, settings_for
 from perpdesk.wallet.sync import sync_wallet
 
+if len(sys.argv) > 1 and sys.argv[1].startswith("signals"):  # 7-day signal audit: "signals" or "signals:14"
+    sys.path.insert(0, "scripts")
+    from signals_report import main as signals_main
+
+    asyncio.run(signals_main(int(sys.argv[1].split(":")[1]) if ":" in sys.argv[1] else 7))
+    sys.exit(0)
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 12
 
 
