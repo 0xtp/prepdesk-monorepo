@@ -186,3 +186,20 @@ that pass alone are combined. A fix that fails is not adopted, whatever this wee
 Known limits: 7 of the 19 trend coins were chosen after seeing 2021-2026 results (optimistic); the breakout lookback
 is the walk-forward's final choice; with 7 variants, one may pass by luck, so a pass is a candidate for paper, not
 proof.
+
+**Result (run 2026-10-30, GitHub run 41008065182): no fix passed. Nothing is adopted.**
+
+| Variant | n | sum R | avg R | max DD | return/DD | 2026 | verdict |
+|---|---|---|---|---|---|---|---|
+| BASE (live rules) | 3840 | +336.5 | +0.088 | 66.8R | 5.04 | **-31.7R** | — |
+| F1a max 2 same dir | 1700 | +124.2 | +0.073 | 33.9R | 3.66 | -15.4R | fail (3/6 yrs) |
+| F1b max 1 same dir | 1016 | +51.8 | +0.051 | 19.7R | 2.63 | -13.1R | fail (0/6 yrs) |
+| F1c max 3R open | 2123 | +143.6 | +0.068 | 67.2R | 2.14 | -48.6R | fail |
+| F2 stop ≥ 1.5 ATR | 3318 | +242.0 | +0.073 | 41.9R | 5.78 | -19.8R | fail (1/6 yrs; better 2024-26, worse 2021-23) |
+| F3a coin ADX ≥ 20 | 3263 | +242.1 | +0.074 | 58.9R | 4.11 | -26.6R | fail |
+| F3b BTC ADX ≥ 20 | 3038 | +226.9 | +0.075 | 61.7R | 3.68 | -29.4R | fail |
+| F3c 48h pause after 3 losses | 3361 | +262.6 | +0.078 | 55.1R | 4.77 | -18.6R | fail (2/6 yrs) |
+
+Base by year: 2021 +68.2, 2022 +63.1, 2023 +62.8, 2024 +67.7, 2025 +106.3, **2026 -31.7** (its max drawdown, 66.8R,
+is in 2026). Longest losing run 21 trades; worst 30 days -41.7R. The caps cut drawdowns but cut profit more; the
+filters remove winners and losers alike. The bigger finding: the combined system has been losing all of 2026.
