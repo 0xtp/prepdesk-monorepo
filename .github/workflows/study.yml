@@ -1,0 +1,72 @@
+name: portfolio-study
+# Pre-registered portfolio study (docs/PHASE2.md, "Portfolio study"): breakout + trend follower as one account,
+# with and without each proposed fix. Read-only: nothing is written to the app database.
+on:
+  workflow_dispatch:
+    inputs:
+      start: { description: "Start date", default: "2021-01-01" }
+jobs:
+  breakout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        min_sl_atr: ["0.8", "1.5"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv -p 3.12 && uv pip install -e .
+      - uses: actions/cache@v4
+        with:
+          path: .cache/binance
+          key: binance-study-${{ github.run_id }}-${{ matrix.min_sl_atr }}
+          restore-keys: binance-
+      - name: breakout signals
+        env:
+          TRADING_TIMEFRAME: 4h
+          MIN_SL_ATR: ${{ matrix.min_sl_atr }}
+        run: |
+          .venv/bin/perpdesk backtest --coins "SOL,BTC,ETH,HYPE,AVAX,LINK,SUI,UNI,DOGE,ENA,ONDO,ZEC" \
+            --start "${{ github.event.inputs.start }}" --out reports --dump-breakout "reports/breakout_${{ matrix.min_sl_atr }}.json"
+      - uses: actions/upload-artifact@v4
+        with: { name: "breakout-${{ matrix.min_sl_atr }}", path: "reports/breakout_${{ matrix.min_sl_atr }}.json" }
+  trend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv -p 3.12 && uv pip install -e .
+      - uses: actions/cache@v4
+        with:
+          path: .cache/binance
+          key: binance-study-trend-${{ github.run_id }}
+          restore-keys: binance-
+      - run: |
+          .venv/bin/perpdesk lab --coins "SOL,BTC,ETH,HYPE,AVAX,LINK,SUI,UNI,DOGE,ENA,ONDO,ZEC,BNB,ADA,TRX,FIL,OP,ARB,WLD" \
+            --start "${{ github.event.inputs.start }}" --all-signals --only trend_follow --out reports
+      - uses: actions/upload-artifact@v4
+        with: { name: trend, path: reports/lab_trades.json }
+  portfolio:
+    needs: [breakout, trend]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv -p 3.12 && uv pip install -e .
+      - uses: actions/cache/restore@v4
+        with:
+          path: .cache/binance
+          key: binance-study-trend-${{ github.run_id }}
+          restore-keys: binance-
+      - uses: actions/download-artifact@v4
+        with: { path: in, merge-multiple: true }
+      - run: ls -la in
+      - run: |
+          .venv/bin/perpdesk portfolio --breakout in/breakout_0.8.json --lab in/lab_trades.json \
+            --wide in/breakout_1.5.json --out reports
+      - uses: actions/upload-artifact@v4
+        with: { name: portfolio-study, path: reports/ }

@@ -242,15 +242,17 @@ def refine(run: CoinRun, spec: PlanSpec, coarse: pd.DataFrame, out: Outcome, end
     return better
 
 
-def simulate(run: CoinRun, setup: str, param_idx: int, pcfg: PlanConfig) -> list[Trade]:
-    """One position at a time. setup == 'composite' trades the composite plan on every flat bar."""
+def simulate(run: CoinRun, setup: str, param_idx: int, pcfg: PlanConfig, one_at_a_time: bool = True) -> list[Trade]:
+    """One position at a time. setup == 'composite' trades the composite plan on every flat bar.
+    one_at_a_time=False scores every signal, even while an earlier one is still open (for portfolio studies, which
+    apply their own position rules)."""
     bars = run.bars5
     t5 = index_ms(bars)
     horizon = pcfg.plan_ttl_min * 60_000 + pcfg.max_hold_hours * 3_600_000 + 600_000
     flat_until = -1
     trades: list[Trade] = []
     for rec in run.records:
-        if rec.t_ms < flat_until:
+        if one_at_a_time and rec.t_ms < flat_until:
             continue
         key = "composite"
         if setup == "composite":

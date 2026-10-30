@@ -51,7 +51,15 @@ def _lab(args: argparse.Namespace) -> int:
 
     end = date.fromisoformat(args.end) if args.end else datetime.now(UTC).date()
     run_lab([c.strip() for c in args.coins.split(",") if c.strip()], date.fromisoformat(args.start), end,
-            Path(args.cache), Path(args.out), tf=args.tf)
+            Path(args.cache), Path(args.out), tf=args.tf, all_signals=args.all_signals,
+            only=[x.strip() for x in args.only.split(",") if x.strip()] or None)
+    return 0
+
+
+def _portfolio(args: argparse.Namespace) -> int:
+    from perpdesk.lab.portfolio import main
+
+    main(args.breakout, args.lab, args.wide, args.cache, args.out)
     return 0
 
 
@@ -64,7 +72,8 @@ def _backtest(args: argparse.Namespace) -> int:
     st = get_settings()
     classes = {sym: g for g, syms in st.favorite_groups for sym in syms}
     res = run_backtest([c.strip() for c in args.coins.split(",") if c.strip()], start, end, st, Path(args.cache),
-                       Path(args.out), classes=classes, do_ablation=args.ablation, write_db=args.db)
+                       Path(args.out), classes=classes, do_ablation=args.ablation, write_db=args.db,
+                       dump_breakout=args.dump_breakout)
     print(json.dumps(res["summary"], indent=1, default=str))
     return 0
 
@@ -170,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out", default="reports")
     b.add_argument("--ablation", action="store_true")
     b.add_argument("--db", action="store_true", help="write results to DATABASE_URL")
+    b.add_argument("--dump-breakout", default="", help="write every breakout signal's outcome (JSON) for portfolio studies")
     b.set_defaults(fn=_backtest)
     lb = sub.add_parser("lab", help="strategy-lab backtest (all lab bots, fixed settings)")
     lb.add_argument("--coins", default="SOL,BTC,ETH,HYPE,AVAX,LINK,SUI,UNI,DOGE,ENA,ONDO,ZEC")
@@ -178,7 +188,16 @@ def main(argv: list[str] | None = None) -> int:
     lb.add_argument("--cache", default=".cache/binance")
     lb.add_argument("--out", default="reports")
     lb.add_argument("--tf", default="4h", choices=["1h", "4h"], help="candles the strategies run on")
+    lb.add_argument("--all-signals", action="store_true", help="keep overlapping signals (portfolio study input)")
+    lb.add_argument("--only", default="", help="comma-separated strategies to run (default: all)")
     lb.set_defaults(fn=_lab)
+    pf = sub.add_parser("portfolio", help="replay breakout + trend trades as one account, with and without each fix")
+    pf.add_argument("--breakout", required=True, help="backtest --dump-breakout output")
+    pf.add_argument("--lab", required=True, help="lab --all-signals lab_trades.json")
+    pf.add_argument("--wide", default="", help="breakout dump from a run with a wider minimum stop (optional)")
+    pf.add_argument("--cache", default=".cache/binance")
+    pf.add_argument("--out", default="reports")
+    pf.set_defaults(fn=_portfolio)
     v = sub.add_parser("verify", help="live proof run against the real APIs")
     v.add_argument("--coins", default="BTC,ETH,SOL,HYPE")
     v.add_argument("--spot", default="", help="a contract address to check the spot-only path")

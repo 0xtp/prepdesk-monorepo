@@ -53,8 +53,9 @@ def _funding_at(funding: pd.DataFrame, t_ms: int) -> float:
 
 def run_strategy(strat: Strategy, coin: str, c4h: pd.DataFrame, d1: pd.DataFrame, btc_d1: pd.DataFrame | None,
                  c5m: pd.DataFrame, funding: pd.DataFrame, start_ms: int, fine: Any = None,
-                 book: Any = None, bar_ms: int = H4_MS) -> list[LabTrade]:
-    """bars: the strategy's candles (4h normally; 1h to test a faster version of the same rules)."""
+                 book: Any = None, bar_ms: int = H4_MS, one_at_a_time: bool = True) -> list[LabTrade]:
+    """bars: the strategy's candles (4h normally; 1h to test a faster version of the same rules).
+    one_at_a_time=False keeps every signal, even while an earlier one is still open (for portfolio studies)."""
     from perpdesk.backtest.runner import CoinRun, refine
 
     feat = strat.prepare(c4h, d1, btc_d1, bar_ms)
@@ -68,7 +69,7 @@ def run_strategy(strat: Strategy, coin: str, c4h: pd.DataFrame, d1: pd.DataFrame
     close_ms = index_ms(feat) + bar_ms
     for k, row in enumerate(feat.itertuples(index=False)):
         t = int(close_ms[k])
-        if t < start_ms or t < flat_until:
+        if t < start_ms or (one_at_a_time and t < flat_until):
             continue
         try:
             e = strat.entry_at(row)
@@ -156,8 +157,9 @@ def summarize_carry(per_coin: dict[str, list[Any]], start_ms: int, end_ms: int) 
     return out
 
 
-def run_lab(coins: list[str], start: date, end: date, cache_dir: Path, out_dir: Path, tf: str = "4h"
-            ) -> dict[str, Any]:
+def run_lab(coins: list[str], start: date, end: date, cache_dir: Path, out_dir: Path, tf: str = "4h",
+            all_signals: bool = False, only: list[str] | None = None) -> dict[str, Any]:
+    """all_signals: keep overlapping signals (portfolio studies); only: run just these strategies."""
     from perpdesk.backtest.history import load_history
     from perpdesk.backtest.main import minute_loader
 
@@ -182,9 +184,11 @@ def run_lab(coins: list[str], start: date, end: date, cache_dir: Path, out_dir: 
         fine = minute_loader(coin, cache_dir)
         book = LevelBook(fr)
         for strat in STRATEGIES.values():
+            if only and strat.name not in only:
+                continue
             ts = time.monotonic()
             got = run_strategy(strat, coin, fr[tf], fr["1d"], btc_d1, hist.c5m, hist.funding, start_ms, fine, book,
-                               TF_MS[tf])
+                               TF_MS[tf], one_at_a_time=not all_signals)
             trades.extend(got)
             avg = float(np.mean([t.r for t in got])) if got else 0.0
             _log(f"{coin:5s} {strat.name:16s} n={len(got):4d} avgR={avg:+.3f} ({time.monotonic() - ts:.0f}s)")

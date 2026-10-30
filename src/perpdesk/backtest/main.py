@@ -115,9 +115,27 @@ def entry_variant_lines(runs: list[CoinRun], pcfg: PlanConfig, param_idx: int, s
     return out
 
 
+def dump_breakout_trades(runs: list[CoinRun], pcfgs: dict[str, PlanConfig], param_idx: int, start_ms: int,
+                         path: Path) -> None:
+    """Every breakout signal the live bot would act on (normal entry, chosen lookback), scored on its own even while
+    an earlier one is open, so a portfolio study can apply position rules. Includes the stop distance in ATR terms."""
+    from perpdesk.backtest.runner import simulate
+
+    rows = []
+    for run in runs:
+        for t in simulate(run, "breakout", param_idx, pcfgs[run.coin], one_at_a_time=False):
+            if t.t_ms >= start_ms:
+                rows.append({"bot": "breakout", "coin": t.coin, "direction": t.direction, "t_ms": t.t_ms,
+                             "end_ms": t.end_ms, "filled": t.filled, "r": t.r, "exit_reason": t.exit_reason,
+                             "rr_tp1": t.rr_tp1})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows))
+    _log(f"breakout signals written: {len(rows)} ({sum(1 for r in rows if r['filled'])} filled) -> {path}")
+
+
 def run_backtest(coins: list[str], start: date, end: date, settings: Settings, cache_dir: Path, out_dir: Path,
-                 classes: dict[str, str] | None = None, do_ablation: bool = False, write_db: bool = False
-                 ) -> dict[str, Any]:
+                 classes: dict[str, str] | None = None, do_ablation: bool = False, write_db: bool = False,
+                 dump_breakout: str = "") -> dict[str, Any]:
     t0 = time.monotonic()
     out_dir.mkdir(parents=True, exist_ok=True)
     from perpdesk.pipeline import engine_config, plan_config
@@ -185,6 +203,8 @@ def run_backtest(coins: list[str], start: date, end: date, settings: Settings, c
         _log(line)
     for line in entry_variant_lines(runs, pcfg_any, wf.final_params.get("breakout", 0), start_ms):
         _log(line)
+    if dump_breakout:
+        dump_breakout_trades(runs, pcfgs, wf.final_params.get("breakout", 0), start_ms, Path(dump_breakout))
     abl: dict[str, list[dict[str, Any]]] = {}
     if do_ablation:
         for run in runs:

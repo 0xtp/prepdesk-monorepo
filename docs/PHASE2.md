@@ -163,3 +163,26 @@ Vercel functions are short-lived, which suits SIGNALS/PAPER. LIVE needs reliable
 - PAPER mode for at least `MIN_SAMPLE_FOR_STATS` trades with live expectancy within the backtest range.
 - Hyperliquid **testnet** end-to-end run (`https://api.hyperliquid-testnet.xyz`) with a testnet agent wallet.
 - A first LIVE week at minimum size (the `$10` exchange minimum).
+
+### Portfolio study (pre-registered 2026-10-30, before any result was seen)
+Why: the first live-paper week (Oct 21-29) lost -14.1R on TAKE trades (1 win in 16), mostly because several signals
+in the same direction were one bet, breakout stops were tight (median 2.2%) and the market chopped sideways.
+
+Data: every breakout signal (12 coins, 4h, 2021-01-01 → now, `backtest --dump-breakout`) and every trend-follower
+signal (19 coins, `lab --all-signals --only trend_follow`), each scored on its own; `perpdesk portfolio` replays
+them as one account, 1R per trade, with the live rules (breakout max 3 open, trend max 6, one per coin per bot).
+
+Fixes tested (no others, no parameter search):
+- F1a max 2 open in the same direction (both bots) + no coin held by both bots
+- F1b max 1 open in the same direction + no coin twice
+- F1c max 3R open in total + no coin twice
+- F2 breakout minimum stop 1.5 ATR instead of 0.8 (separate backtest run, `MIN_SL_ATR=1.5`)
+- F3a skip a signal when the coin's 4h ADX14 < 20 (sideways); F3b same with BTC's 4h ADX14
+- F3c pause a direction for 48h after 3 losses in a row in that direction
+
+Pass rule (all must hold versus the live rules): return / max drawdown ≥ 10% better; max drawdown not worse;
+better return/drawdown in ≥ 4 of the 6 years 2021-2026; better in both halves (2021-23 and 2024-26). Only fixes
+that pass alone are combined. A fix that fails is not adopted, whatever this week's trades say.
+Known limits: 7 of the 19 trend coins were chosen after seeing 2021-2026 results (optimistic); the breakout lookback
+is the walk-forward's final choice; with 7 variants, one may pass by luck, so a pass is a candidate for paper, not
+proof.
